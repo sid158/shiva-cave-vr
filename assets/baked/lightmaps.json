@@ -2,49 +2,49 @@
  "cave_shell": {
   "res": 2048,
   "png": "lm_cave_shell.png",
-  "scale": 4.0,
-  "mean": 0.0279
+  "scale": 4.6,
+  "mean": 0.0295
  },
  "ghat": {
   "res": 2048,
   "png": "lm_ghat.png",
-  "scale": 4.0,
-  "mean": 0.1111
+  "scale": 6.2,
+  "mean": 0.0582
  },
  "stalactites": {
   "res": 1024,
   "png": "lm_stalactites.png",
-  "scale": 4.0,
-  "mean": 0.0113
+  "scale": 4.6,
+  "mean": 0.0099
  },
  "boulders": {
   "res": 1024,
   "png": "lm_boulders.png",
-  "scale": 4.0,
-  "mean": 0.0342
+  "scale": 5.0,
+  "mean": 0.0258
  },
  "pedestal": {
   "res": 512,
   "png": "lm_pedestal.png",
   "scale": 4.0,
-  "mean": 0.0349
+  "mean": 0.0385
  },
  "shrines": {
   "res": 1024,
   "png": "lm_shrines.png",
-  "scale": 4.0,
-  "mean": 0.0108
+  "scale": 4.4,
+  "mean": 0.0178
  },
  "shivling": {
-  "res": 1024,
+  "res": 2048,
   "png": "lm_shivling.png",
   "scale": 4.0,
-  "mean": 0.1516
+  "mean": 0.1427
  },
  "shiva": {
-  "res": 1024,
+  "res": 2048,
   "png": "lm_shiva.png",
-  "scale": 4.0,
-  "mean": 0.0321
+  "scale": 5.5,
+  "mean": 0.0427
  }
 }
