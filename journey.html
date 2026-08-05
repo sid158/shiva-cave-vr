@@ -60,6 +60,26 @@
 <body>
 <canvas id="view"></canvas>
 
+<script>
+  // If the app hasn't booted within 12 seconds, the likeliest cause is a
+  // cached page pointing at a superseded bundle. Reload once, cache-busted;
+  // if that still fails, say so instead of sitting silent forever.
+  setTimeout(function () {
+    if (!window.__JOURNEY_READY && !window.__JOURNEY_ERROR) {
+      if (!sessionStorage.getItem('jr_reloaded')) {
+        sessionStorage.setItem('jr_reloaded', '1');
+        location.replace(location.pathname + '?r=' + Date.now());
+      } else {
+        var el = document.getElementById('status');
+        if (el) el.textContent =
+          'Loading failed — check your connection, then close and reopen this page.';
+      }
+    } else {
+      sessionStorage.removeItem('jr_reloaded');
+    }
+  }, 12000);
+</script>
+
 <div id="shell">
   <h1>The Room Lets Go</h1>
   <div class="rule"></div>
