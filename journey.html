@@ -53,7 +53,7 @@
   }
   body.started .note { opacity: 0; }
 </style>
-  <script type="module" crossorigin src="./assets/journey-D0cu2eMp.js"></script>
+  <script type="module" crossorigin src="./assets/journey-e48KDmzb.js"></script>
   <link rel="modulepreload" crossorigin href="./assets/three-nyODTqkC.js">
   <link rel="modulepreload" crossorigin href="./assets/meshopt_decoder.module-D7UQsJ41.js">
 </head>
@@ -61,23 +61,42 @@
 <canvas id="view"></canvas>
 
 <script>
-  // If the app hasn't booted within 12 seconds, the likeliest cause is a
-  // cached page pointing at a superseded bundle. Reload once, cache-busted;
-  // if that still fails, say so instead of sitting silent forever.
-  setTimeout(function () {
-    if (!window.__JOURNEY_READY && !window.__JOURNEY_ERROR) {
+  // Boot supervision. Three distinct situations, three behaviours:
+  //   1. A script or chunk actually failed to load (stale cache, dropped
+  //      connection): reload once with a cache-buster.
+  //   2. Everything is still downloading (slow network): WAIT, and say so —
+  //      never interrupt in-flight downloads with a reload.
+  //   3. The app threw: boot's own handler reports it.
+  window.__LOAD_FAIL = false;
+  window.addEventListener('error', function (e) {
+    var el = e.target;
+    if (el && (el.tagName === 'SCRIPT' || el.tagName === 'LINK')) {
+      window.__LOAD_FAIL = true;
+    }
+  }, true);
+
+  var patience = document.getElementById ? 15000 : 15000;
+  setTimeout(function check() {
+    if (window.__JOURNEY_READY || window.__JOURNEY_ERROR) {
+      sessionStorage.removeItem('jr_reloaded');
+      return;
+    }
+    if (window.__LOAD_FAIL) {
       if (!sessionStorage.getItem('jr_reloaded')) {
         sessionStorage.setItem('jr_reloaded', '1');
         location.replace(location.pathname + '?r=' + Date.now());
       } else {
         var el = document.getElementById('status');
         if (el) el.textContent =
-          'Loading failed — check your connection, then close and reopen this page.';
+          'A file failed to load — check your connection, then reopen this page.';
       }
-    } else {
-      sessionStorage.removeItem('jr_reloaded');
+      return;
     }
-  }, 12000);
+    // nothing failed; it is just slow — keep waiting, keep checking
+    var sub = document.getElementById('substatus');
+    if (sub) sub.textContent = 'Still preparing — the connection is slow, but nothing is wrong.';
+    setTimeout(check, 5000);
+  }, patience);
 </script>
 
 <div id="shell">
