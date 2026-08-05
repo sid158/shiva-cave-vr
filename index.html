@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#05080b">
+<title>Shiva Cave — a meditation</title>
+<link rel="icon" href="data:,">
+<style>
+  :root {
+    --ink: #dce6f0;
+    --dim: #7e8fa1;
+    --ember: #ffab52;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; overflow: hidden;
+    background: #05080b; color: var(--ink);
+    font-family: ui-serif, Georgia, "Times New Roman", serif;
+    -webkit-font-smoothing: antialiased;
+    touch-action: none;
+  }
+  #view { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  /* ---------------------------------------------------------------- shell */
+  #shell {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 1.6rem; text-align: center; padding: 2rem;
+    background:
+      radial-gradient(ellipse 120% 80% at 50% 42%, rgba(24,38,52,.55), rgba(5,8,11,.96) 68%),
+      #05080b;
+    transition: opacity 1.4s ease, visibility 1.4s;
+  }
+  body.started #shell { opacity: 0; visibility: hidden; pointer-events: none; }
+
+  h1 {
+    font-size: clamp(1.9rem, 5.5vw, 3.2rem);
+    font-weight: 400; letter-spacing: .22em; margin: 0;
+    text-transform: uppercase; color: #e8eef6;
+    text-shadow: 0 0 34px rgba(150,190,230,.34);
+  }
+  .sub {
+    margin: 0; color: var(--dim); font-size: clamp(.86rem, 2.4vw, 1rem);
+    letter-spacing: .1em; max-width: 32rem; line-height: 1.75;
+  }
+
+  #enter {
+    margin-top: .4rem;
+    appearance: none; cursor: pointer;
+    background: transparent; color: var(--ink);
+    border: 1px solid rgba(190,215,240,.34);
+    padding: .95rem 2.6rem; border-radius: 2rem;
+    font: inherit; font-size: 1rem; letter-spacing: .2em; text-transform: uppercase;
+    transition: background .5s, border-color .5s, box-shadow .5s, transform .2s;
+  }
+  #enter:hover {
+    background: rgba(150,190,230,.09);
+    border-color: rgba(190,215,240,.7);
+    box-shadow: 0 0 44px rgba(120,170,220,.22);
+  }
+  #enter:active { transform: scale(.985); }
+  #enter[disabled] { opacity: .45; cursor: progress; }
+
+  #status { color: #64748a; font-size: .78rem; letter-spacing: .12em; min-height: 1.2em; }
+
+  /* --------------------------------------------------------------- loader */
+  #loader { width: min(22rem, 70vw); }
+  #track { height: 1px; background: rgba(160,190,220,.16); overflow: hidden; }
+  #bar { height: 100%; width: 2%; background: linear-gradient(90deg, #4d7ea8, var(--ember)); transition: width .45s ease; }
+  #loadLabel {
+    margin-top: .75rem; font-size: .74rem; letter-spacing: .18em;
+    color: #55677d; text-transform: lowercase; font-style: italic;
+  }
+  body.loaded #loader { opacity: 0; height: 0; transition: opacity .8s; }
+  body.loaded #enter { opacity: 1; pointer-events: auto; }
+  #enter { opacity: .25; pointer-events: none; transition: opacity .8s; }
+
+  /* -------------------------------------------------------------- in-page */
+  #hint {
+    position: fixed; left: 50%; bottom: 2.1rem; transform: translateX(-50%);
+    z-index: 6; color: #56687e; font-size: .74rem; letter-spacing: .16em;
+    opacity: 0; transition: opacity 1.6s ease 1.4s; pointer-events: none;
+    text-align: center; line-height: 1.9;
+  }
+  body.started #hint { opacity: 1; }
+  body.in-vr #hint { opacity: 0; transition: opacity .3s; }
+
+  #vrbar { position: fixed; top: 1.1rem; right: 1.1rem; z-index: 7; opacity: 0; transition: opacity 1s ease 1s; }
+  body.started #vrbar { opacity: 1; }
+  body.in-vr #vrbar { opacity: 0; }
+</style>
+  <script type="module" crossorigin src="./assets/index-DWr3_pa6.js"></script>
+  <link rel="modulepreload" crossorigin href="./assets/three-B0MzMegT.js">
+</head>
+<body>
+<canvas id="view"></canvas>
+
+<div id="shell">
+  <h1>Shiva Cave</h1>
+  <p class="sub">
+    A cavern beneath the mountain. Water falls through an opening in the rock
+    onto the linga, and the great one sits behind it in the dark.<br>
+    Sit down where you are — cross-legged on the floor, or on a low chair —
+    before you put the headset on. The stone will find your height.
+  </p>
+
+  <div id="loader">
+    <div id="track"><div id="bar"></div></div>
+    <div id="loadLabel">waking the cave…</div>
+  </div>
+
+  <button id="enter" disabled>Enter the cave</button>
+  <div id="status"></div>
+</div>
+
+<div id="hint">
+  Rest your eyes on an unlit lamp to light it · breathe with the water<br>
+  right stick adjusts the rock · trigger re-measures your seat
+</div>
+
+<script>
+  // the button only becomes live once the scene is built
+  const b = document.getElementById('enter');
+  const t = setInterval(() => {
+    if (window.__CAVE_READY) { b.disabled = false; clearInterval(t); }
+    if (window.__CAVE_ERROR) { clearInterval(t); }
+  }, 200);
+</script>
+</body>
+</html>
