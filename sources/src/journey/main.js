@@ -246,6 +246,9 @@ async function boot() {
   let whooshGain = null;
   let scream = null;
   let screamAt = 0;
+  let hellAmbGain = null;
+  let hellAmbBuf = null;
+  let hellAmbStarted = false;
   let beat = null;
   function initAudioGraph() {
     if (ctx) return;
@@ -260,6 +263,14 @@ async function boot() {
       src.connect(voiceBus).connect(master);
       narrator.attachAnalyser(ctx, voiceBus);
       drone = createDrone(ctx, master);
+
+      // the sound of the place itself: rumble, bubbling melt, distant wails.
+      // Decoded here, started the moment hell forms, dead at the mantra.
+      fetch('assets/audio/hell_ambience.mp3')
+        .then((r) => r.arrayBuffer())
+        .then((ab) => ctx.decodeAudioData(ab))
+        .then((buf) => { hellAmbBuf = buf; })
+        .catch((e) => console.warn('[journey] hell ambience', e));
 
       // ---- section-3 instruments ----------------------------------------
       // the tunnel's roar: looped noise through a resonant bandpass
@@ -687,6 +698,22 @@ async function boot() {
         drone.level = (0.16 + hellV * 0.10) * (1 - releaseV);
       }
     }
+    // the ambient bed of hell — fades with the walk, dies at the mantra
+    if (ctx && hellAmbBuf && !hellAmbStarted && hellV > 0.01 && manualT === null) {
+      hellAmbStarted = true;
+      const src2 = ctx.createBufferSource();
+      src2.buffer = hellAmbBuf;
+      src2.loop = true;
+      hellAmbGain = ctx.createGain();
+      hellAmbGain.gain.value = 0;
+      src2.connect(hellAmbGain).connect(master);
+      src2.start();
+    }
+    if (hellAmbGain && ctx) {
+      const lvl = hellV * 0.62 * (1 - releaseV * 0.96);
+      hellAmbGain.gain.setTargetAtTime(lvl, ctx.currentTime, 0.6);
+    }
+
     // hell has voices in it. Random, far away, and they stop at the mantra.
     if (scream && manualT === null && hellV > 0.25 && t < SEG4.mantra) {
       if (t > screamAt) {
