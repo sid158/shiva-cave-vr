@@ -128,7 +128,7 @@ const ROAD_FRAG = /* glsl */`
     col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
     // the far end of the causeway is swallowed
     float far = smoothstep(0.30, 1.0, vUv.y);
-    col = mix(col, vec3(0.100, 0.023, 0.008), far * 0.88);
+    col = mix(col, vec3(0.30, 0.075, 0.020), far * 0.85);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -417,9 +417,9 @@ export function createNaraka(scene) {
           float horizon = exp(-abs(h) * 6.0);
 
           vec3 deep = vec3(0.010, 0.003, 0.002);
-          vec3 brown = vec3(0.13, 0.036, 0.012);
-          vec3 hot = vec3(0.55, 0.13, 0.03);
-          vec3 col = mix(deep, brown, under * (0.25 + 0.75 * churn * churn));
+          vec3 brown = vec3(0.30, 0.085, 0.028);
+          vec3 hot = vec3(0.95, 0.26, 0.055);
+          vec3 col = mix(deep, brown, under * (0.35 + 0.65 * churn));
           col = mix(col, hot, horizon * (0.5 + 0.5 * churn));
           // the furnace beyond the gate: the sky burns hardest dead ahead
           float toGate = smoothstep(0.15, 0.95, -d.z);
@@ -457,32 +457,68 @@ export function createNaraka(scene) {
         varying vec2 vW;
         __NOISE__
         void main() {
+          // vW.x is distance from the causeway centreline, vW.y is -worldZ
           vec2 q = vW * 0.030;
-          // broken plates of cooled crust, with molten rivers in the gaps
-          float crust = fbm(q * 1.4);
-          float plate = fbm(q * 0.45 + 11.0);
-          float channels = rfbm(q * 0.8);
-          float crack = smoothstep(0.66, 0.92, channels);
-          // a second, finer crack network so the ground has scale up close
-          float fine = smoothstep(0.80, 0.97, rfbm(q * 3.4));
-          float pulse = 0.7 + 0.3 * sin(uTime * 0.5 + crust * 9.0);
+          float d = length(vW);
 
-          // the crust is BLACK. Only the gaps are alive.
-          vec3 rock = mix(vec3(0.007, 0.003, 0.002), vec3(0.038, 0.017, 0.010), crust);
-          rock *= 0.55 + 0.45 * plate;              // plate-to-plate value shift
-          vec3 melt = vec3(1.0, 0.30, 0.03) * crack * pulse * 1.35
-                    + vec3(1.0, 0.45, 0.08) * fine * pulse * 0.35;
-          // the molten rivers throw light onto the crust beside them
-          float spill = smoothstep(0.42, 0.92, channels) * 0.5
-                      + smoothstep(0.55, 1.0, rfbm(q * 0.8 + 3.0)) * 0.3;
-          vec3 col = rock + melt * uFire + vec3(0.55, 0.13, 0.03) * spill * uFire * 0.30;
+          // ---- the molten flow: domain-warped, always moving --------------
+          vec2 warp = vec2(fbm(q * 0.7 + uTime * 0.010),
+                           fbm(q * 0.7 + 5.2 - uTime * 0.008));
+          vec2 fq = q + (warp - 0.5) * 1.6;
+          float flow = fbm(fq * 1.15 - vec2(0.0, uTime * 0.035));
+          float fine = fbm(fq * 4.2 - vec2(0.0, uTime * 0.10));
 
-          col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);       // crush the darks
+          // ---- the crust: plates of cooled rock floating on the melt ------
+          float plate = fbm(q * 1.15 + 11.0);
+          float sheet = fbm(q * 3.6 + 31.0);
+          // crust covers a little under half; the rest is open molten rock
+          float crustM = smoothstep(0.40, 0.60, plate * 0.68 + sheet * 0.32);
+          // right beside the causeway the ground is solid bank, not lake
+          float bank = smoothstep(11.0, 4.5, abs(vW.x));
+          crustM = clamp(crustM + bank * 0.85, 0.0, 1.0);
 
-          // aerial perspective, but toward a DIM ember haze, not a bright wash
-          float dist = length(vW) / 380.0;
-          vec3 haze = vec3(0.135, 0.030, 0.010);
-          col = mix(col, haze * (0.35 + 0.65 * uFire), smoothstep(0.30, 1.0, dist));
+          // ---- temperature of the open melt -------------------------------
+          float heat = clamp(flow * 0.72 + fine * 0.38, 0.0, 1.0);
+          heat = pow(heat, 0.80);
+          vec3 melt = mix(vec3(0.62, 0.055, 0.006), vec3(1.0, 0.30, 0.02),
+                          smoothstep(0.10, 0.55, heat));
+          melt = mix(melt, vec3(1.0, 0.66, 0.10), smoothstep(0.50, 0.82, heat));
+          melt = mix(melt, vec3(1.0, 0.92, 0.62), smoothstep(0.80, 0.99, heat));
+          float boil = 0.90 + 0.10 * sin(uTime * 0.9 + flow * 22.0);
+          melt *= boil;
+
+          // the skin: a dark net of cooling crust drawn over the molten rock,
+          // torn open where the flow is fastest. This is what stops it reading
+          // as a smooth orange sheet.
+          float web1 = rfbm(fq * 5.5);
+          float web2 = rfbm(fq * 13.0 + 4.0);
+          float skin = smoothstep(0.42, 0.80, web1) * 0.72
+                     + smoothstep(0.55, 0.88, web2) * 0.38;
+          skin *= 1.0 - smoothstep(0.62, 0.95, heat);     // tears open where hottest
+          melt = mix(melt, melt * vec3(0.10, 0.055, 0.045), clamp(skin, 0.0, 0.88));
+          // and the torn edges of that skin glow hotter than the pool
+          float tear = smoothstep(0.40, 0.50, web1) * (1.0 - smoothstep(0.50, 0.62, web1));
+          melt += vec3(1.0, 0.55, 0.12) * tear * 0.55;
+
+          // ---- the crust itself: black rock, cracked, edges still alight ---
+          float grain = fbm(q * 5.5);
+          vec3 rock = mix(vec3(0.020, 0.010, 0.007), vec3(0.075, 0.040, 0.026), grain);
+          // fractures across the plates, glowing from underneath
+          float crack = smoothstep(0.62, 0.90, rfbm(q * 2.6));
+          float fineCrack = smoothstep(0.76, 0.96, rfbm(q * 8.5));
+          rock += vec3(1.0, 0.30, 0.03) * crack * 0.85
+                + vec3(1.0, 0.45, 0.08) * fineCrack * 0.30;
+          // the shoreline: crust glows white-hot where it meets the melt
+          float shore = (1.0 - abs(crustM * 2.0 - 1.0));
+          rock += vec3(1.0, 0.52, 0.10) * pow(shore, 2.2) * 0.85;
+
+          vec3 col = mix(melt, rock, crustM);
+          col *= uFire * 0.85 + 0.15;
+
+          // ---- aerial perspective toward the furnace horizon --------------
+          float dist = d / 380.0;
+          vec3 haze = vec3(0.85, 0.24, 0.045);
+          col = mix(col, haze * (0.30 + 0.70 * uFire), smoothstep(0.34, 1.0, dist) * 0.85);
           gl_FragColor = vec4(col, 1.0);
         }
       `).replace('__NOISE__', NOISE),
@@ -522,7 +558,7 @@ export function createNaraka(scene) {
   }
 
   // ---- light, so the models exist ------------------------------------------
-  const amb = new THREE.AmbientLight(0x3a1608, 1.15);
+  const amb = new THREE.AmbientLight(0x6b2a0c, 2.15);
   group.add(amb);
   const potLights = [];
   for (let i = 0; i < 4; i++) {
@@ -679,24 +715,27 @@ export function createNaraka(scene) {
         // look up at the dead sky stay black
         float fromBelow = clamp(-N.y, 0.0, 1.0);
         float side = clamp(0.45 + 0.55 * N.z, 0.0, 1.0);
-        vec3 lit = vec3(1.0, 0.30, 0.07) * fromBelow * (0.35 + 0.35 * grain) * uFire;
-        lit *= mix(0.10, 0.55, 1.0 - vP.y);           // only the feet catch it
+        // standing in a lake of molten rock: the light comes from underneath
+        // and dies away up the shaft
+        vec3 lit = vec3(1.0, 0.34, 0.06) * (0.30 + 0.70 * fromBelow)
+                 * (0.45 + 0.55 * grain) * uFire;
+        lit *= mix(0.06, 1.55, pow(1.0 - vP.y, 2.0));
 
         // molten veins climbing out of the base
         float veins = rfbm(q);
         float vein = smoothstep(0.80, 0.97, veins) * (1.0 - smoothstep(0.02, 0.30, vP.y));
         float pulse = 0.7 + 0.3 * sin(uTime * 0.6 + ang * 3.0);
-        vec3 col = rock + lit * 0.55 + vec3(1.0, 0.28, 0.03) * vein * pulse * uFire * 0.55;
+        vec3 col = rock + lit * 0.95 + vec3(1.0, 0.30, 0.03) * vein * pulse * uFire * 0.85;
 
         // a hard rim where the horizon furnace grazes the edge
-        col += vec3(0.9, 0.26, 0.05) * pow(1.0 - abs(N.z), 6.0) * side * 0.14 * uFire;
+        col += vec3(1.0, 0.34, 0.07) * pow(1.0 - abs(N.z), 4.0) * side * 0.36 * uFire;
 
         // contrast: push the darks down so the shape reads as a silhouette
         col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
 
         // distance: the crag forest dissolves into the furnace haze
         float fog = 1.0 - exp(-vDepth * 0.0065);
-        col = mix(col, vec3(0.085, 0.019, 0.006) * (0.35 + 0.65 * uFire), fog * 0.90);
+        col = mix(col, vec3(0.52, 0.135, 0.030) * (0.30 + 0.70 * uFire), fog * 0.88);
         gl_FragColor = vec4(col, 1.0);
       }
     `).replace('__NOISE__', NOISE);
@@ -743,6 +782,54 @@ export function createNaraka(scene) {
       meshes[sp.v].setMatrixAt(fill[sp.v]++, sm);
     }
     for (const m of meshes) m.instanceMatrix.needsUpdate = true;
+  }
+
+  // ---- the kerb wall: a low parapet of the same stone as the road. It is
+  // what the souls at the edge haul themselves onto, and it stops the lake
+  // from running straight up to your feet.
+  {
+    const kerbU = { uTime: { value: 0 }, uFire: { value: 1 } };
+    timeU.push(kerbU); fireU.push(kerbU);
+    const kerbMat = new THREE.ShaderMaterial({
+      uniforms: kerbU,
+      vertexShader: /* glsl */`
+        varying vec3 vP;
+        varying vec3 vN;
+        void main() {
+          vP = position;
+          vN = normalize(normalMatrix * normal);
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: (`
+        precision highp float;
+        uniform float uTime;
+        uniform float uFire;
+        varying vec3 vP;
+        varying vec3 vN;
+        __NOISE__
+        void main() {
+          vec2 q = vec2(vP.y * 5.0, vP.z * 0.9);
+          float cell = fbm(q * 1.4);
+          float crack = smoothstep(0.72, 0.94, rfbm(q * 2.2));
+          vec3 stone = mix(vec3(0.020, 0.011, 0.008), vec3(0.062, 0.040, 0.028), cell);
+          // the lake throws light up the outer face
+          float up = clamp(-vN.y, 0.0, 1.0) * 0.35 + clamp(abs(vN.x), 0.0, 1.0) * 0.65;
+          float low = 1.0 - smoothstep(-0.25, 0.30, vP.y);
+          vec3 col = stone
+                   + vec3(1.0, 0.32, 0.05) * up * low * 0.55 * uFire
+                   + vec3(1.0, 0.30, 0.03) * crack * 0.35 * uFire;
+          col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `).replace('__NOISE__', NOISE),
+    });
+    for (const x of [-2.0, 2.0]) {
+      const w = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.62, 170), kerbMat);
+      w.position.set(x, 0.10, -70);
+      w.frustumCulled = false;
+      group.add(w);
+    }
   }
 
   // ---- the chains: heavy iron, sagging between every pair of posts,
@@ -1182,12 +1269,12 @@ export function createNaraka(scene) {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.scale.setScalar(s * (1.0 + (i % 3) * 0.09));
       // sunk below the kerb: only chest, shoulders and arms clear the stone
-      mesh.position.set(side * 2.25, -0.62, z);
+      mesh.position.set(side * 2.45, -1.08, z);
       mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
       mesh.frustumCulled = false;
       group.add(mesh);
       clawers.push({ mesh, side, z, seed: i * 2.7,
-                     baseY: -0.62, baseX: side * 2.25 });
+                     baseY: -1.08, baseX: side * 2.45 });
     }
 
     // falling forever inside the fire columns
@@ -1233,7 +1320,7 @@ export function createNaraka(scene) {
       for (const u of fireU) if (u.uForm) u.uForm.value = 1 - v * 0.85;
       gateU.uRelease.value = v;
       const dim = 1 - v * 0.9;
-      amb.intensity = 1.05 * dim + v * 2.4;          // white light takes over
+      amb.intensity = 1.95 * dim + v * 2.4;          // white light takes over
       amb.color.setRGB(0.19 + v * 0.7, 0.09 + v * 0.75, 0.04 + v * 0.8);
       for (const L of potLights) L.intensity = 20 * dim;
     },
@@ -1260,8 +1347,8 @@ export function createNaraka(scene) {
         const near = 1 - THREE.MathUtils.clamp(Math.abs(camPos.z - c.z) / 7.5, 0, 1);
         const lunge = near * near;                     // sharp, only right beside you
         const claw = Math.sin(t * 1.5 + c.seed) * 0.5 + 0.5;
-        c.mesh.position.y = c.baseY + claw * 0.16 + lunge * 0.62;
-        c.mesh.position.x = c.baseX - c.side * lunge * 0.42;   // reaches across
+        c.mesh.position.y = c.baseY + claw * 0.20 + lunge * 0.80;
+        c.mesh.position.x = c.baseX - c.side * lunge * 0.55;   // reaches across
         c.mesh.rotation.z = (Math.sin(t * 1.1 + c.seed * 1.7) * 0.12 - lunge * 0.30) * c.side;
         c.mesh.rotation.x = -lunge * 0.34;             // torso thrown at you
       }
