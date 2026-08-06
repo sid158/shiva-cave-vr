@@ -115,16 +115,20 @@ const ROAD_FRAG = /* glsl */`
     float cell = fbm(p * 0.9);
     float cracks = rfbm(p * 0.55);
     float crackLine = smoothstep(0.74, 0.95, cracks);
-    vec3 stone = mix(vec3(0.024, 0.015, 0.011), vec3(0.058, 0.040, 0.030), cell);
+    vec3 stone = mix(vec3(0.014, 0.008, 0.006), vec3(0.040, 0.026, 0.019), cell);
     // the fire underneath breathes through the cracks
     float pulse = 0.6 + 0.4 * sin(uTime * 0.7 + p.y * 0.25);
     vec3 col = stone + vec3(1.0, 0.26, 0.03) * crackLine * pulse * 0.62 * uFire;
     float speck = smoothstep(0.965, 0.995, noise(p * 7.0));
     col += vec3(1.0, 0.45, 0.10) * speck * (0.3 + crackLine) * pulse * uFire * 0.9;
     // the whole slab drinks a little of the furnace light
-    col += vec3(0.30, 0.07, 0.02) * (0.22 + 0.18 * pulse) * uFire;
+    col += vec3(0.30, 0.07, 0.02) * (0.20 + 0.16 * pulse) * uFire;
     // edges darker
     col *= 0.6 + 0.4 * smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
+    col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
+    // the far end of the causeway is swallowed
+    float far = smoothstep(0.30, 1.0, vUv.y);
+    col = mix(col, vec3(0.100, 0.023, 0.008), far * 0.88);
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -154,7 +158,7 @@ const SPIRE_FRAG = /* glsl */`
     float a = m * uForm;
     if (a < 0.004) discard;
     float edge = smoothstep(h - 0.10, h, vUv.y);
-    vec3 col = mix(vec3(0.010, 0.004, 0.004), vec3(0.45, 0.10, 0.02), edge * edge);
+    vec3 col = mix(vec3(0.004, 0.002, 0.002), vec3(0.30, 0.065, 0.014), edge * edge * edge);
     gl_FragColor = vec4(col, a);
   }
 `;
@@ -189,13 +193,30 @@ const FIREFALL_FRAG = /* glsl */`
   __NOISE__
   void main() {
     float x = vUv.x * 2.0 - 1.0;
-    float core = exp(-x * x * 4.0);
-    float streaks = pow(noise(vec2(vUv.x * 9.0 + uSeed * 31.0, vUv.y * 5.0 + uTime * (0.55 + uSeed * 0.2))), 2.0);
-    float vf = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
-    vec3 col = mix(vec3(0.9, 0.20, 0.03), vec3(1.0, 0.65, 0.20), streaks);
-    float a = core * (streaks * 1.5 + 0.22) * vf * uForm * 1.45;
-    if (a < 0.004) discard;
-    gl_FragColor = vec4(col * a * 2.0, a);
+    float fall = uTime * (0.85 + uSeed * 0.35);
+
+    // the column wanders as it falls instead of hanging like a rod
+    float sway = (noise(vec2(uSeed * 51.0, vUv.y * 1.6 - fall * 0.25)) - 0.5) * 0.85;
+    x -= sway;
+
+    // torn into separate falling masses, with gaps of nothing between them
+    float clumps = noise(vec2(uSeed * 13.0, vUv.y * 3.2 - fall));
+    float tear = smoothstep(0.30, 0.72, clumps);
+
+    // narrow, hot spine with a ragged edge
+    float w = 0.42 + 0.34 * noise(vec2(uSeed * 7.0 + 4.0, vUv.y * 6.0 - fall * 1.4));
+    float core = exp(-x * x / (w * w) * 2.6);
+    float turb = pow(noise(vec2(x * 3.2 + uSeed * 31.0, vUv.y * 7.0 - fall * 1.7)), 1.7);
+
+    float vf = smoothstep(0.0, 0.10, vUv.y) * smoothstep(1.0, 0.72, vUv.y);
+    // it dies out toward the ground into smoke
+    float burn = mix(0.35, 1.0, smoothstep(0.0, 0.45, vUv.y));
+
+    vec3 col = mix(vec3(0.62, 0.09, 0.01), vec3(1.0, 0.52, 0.12), turb);
+    col = mix(col, vec3(1.0, 0.86, 0.52), pow(turb * core, 2.4));
+    float a = core * tear * (turb * 1.20 + 0.06) * vf * burn * uForm * 0.72;
+    if (a < 0.005) discard;
+    gl_FragColor = vec4(col * a * 1.55, a);
   }
 `;
 
@@ -317,11 +338,11 @@ const GATE_FRAG = /* glsl */`
     float arch = 1.0 - smoothstep(0.30, 0.44, length(vec2(p.x, max(0.0, p.y + 0.15) * 0.8)));
     // towers either side: dark, spiked
     float towers = step(0.55, abs(p.x)) * step(p.y, 0.35 + rfbm(vec2(p.x * 4.0, 0.0)) * 0.4);
-    vec3 fire = mix(vec3(0.75, 0.16, 0.03), vec3(1.0, 0.55, 0.16), fbm(p * 3.0 + uTime * 0.05));
+    vec3 fire = mix(vec3(0.95, 0.20, 0.02), vec3(1.0, 0.62, 0.14), fbm(p * 3.0 + uTime * 0.05));
     vec3 white = vec3(1.0, 0.98, 0.92);
     vec3 glowCol = mix(fire, white, uRelease);
     float flicker = mix(0.7 + 0.3 * fbm(vec2(uTime * 0.4, p.y * 3.0)), 1.0, uRelease);
-    vec3 col = glowCol * arch * flicker * (0.55 + uRelease * 1.55);
+    vec3 col = glowCol * arch * flicker * (1.15 + uRelease * 1.10);
     col = mix(col, vec3(0.010, 0.005, 0.006), towers);
     float a = max(arch * (0.60 + uRelease * 0.40), towers * 0.92) * uForm;
     if (a < 0.004) discard;
@@ -437,16 +458,31 @@ export function createNaraka(scene) {
         __NOISE__
         void main() {
           vec2 q = vW * 0.030;
+          // broken plates of cooled crust, with molten rivers in the gaps
           float crust = fbm(q * 1.4);
+          float plate = fbm(q * 0.45 + 11.0);
           float channels = rfbm(q * 0.8);
-          float crack = smoothstep(0.62, 0.88, channels);
+          float crack = smoothstep(0.66, 0.92, channels);
+          // a second, finer crack network so the ground has scale up close
+          float fine = smoothstep(0.80, 0.97, rfbm(q * 3.4));
           float pulse = 0.7 + 0.3 * sin(uTime * 0.5 + crust * 9.0);
-          vec3 rock = mix(vec3(0.022, 0.010, 0.007), vec3(0.065, 0.030, 0.018), crust);
-          vec3 melt = vec3(1.0, 0.30, 0.03) * crack * pulse;
-          // aerial perspective: the land dissolves into the horizon's furnace
+
+          // the crust is BLACK. Only the gaps are alive.
+          vec3 rock = mix(vec3(0.007, 0.003, 0.002), vec3(0.038, 0.017, 0.010), crust);
+          rock *= 0.55 + 0.45 * plate;              // plate-to-plate value shift
+          vec3 melt = vec3(1.0, 0.30, 0.03) * crack * pulse * 1.35
+                    + vec3(1.0, 0.45, 0.08) * fine * pulse * 0.35;
+          // the molten rivers throw light onto the crust beside them
+          float spill = smoothstep(0.42, 0.92, channels) * 0.5
+                      + smoothstep(0.55, 1.0, rfbm(q * 0.8 + 3.0)) * 0.3;
+          vec3 col = rock + melt * uFire + vec3(0.55, 0.13, 0.03) * spill * uFire * 0.30;
+
+          col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);       // crush the darks
+
+          // aerial perspective, but toward a DIM ember haze, not a bright wash
           float dist = length(vW) / 380.0;
-          vec3 haze = vec3(0.45, 0.11, 0.03);
-          vec3 col = mix(rock + melt * uFire, haze * (0.4 + 0.6 * uFire), smoothstep(0.35, 1.0, dist));
+          vec3 haze = vec3(0.135, 0.030, 0.010);
+          col = mix(col, haze * (0.35 + 0.65 * uFire), smoothstep(0.30, 1.0, dist));
           gl_FragColor = vec4(col, 1.0);
         }
       `).replace('__NOISE__', NOISE),
@@ -486,11 +522,11 @@ export function createNaraka(scene) {
   }
 
   // ---- light, so the models exist ------------------------------------------
-  const amb = new THREE.AmbientLight(0x4a220e, 2.6);
+  const amb = new THREE.AmbientLight(0x3a1608, 1.15);
   group.add(amb);
   const potLights = [];
   for (let i = 0; i < 4; i++) {
-    const L = new THREE.PointLight(0xff5a18, 34, 44, 1.7);
+    const L = new THREE.PointLight(0xff5a18, 46, 40, 1.9);
     group.add(L);
     potLights.push(L);
   }
@@ -556,66 +592,157 @@ export function createNaraka(scene) {
   glowShell.frustumCulled = false;
   group.add(glowShell);
 
-  // ---- the spike forest: jagged lava-veined rock, both sides to the horizon --
+  // ---- the crag forest: jagged basalt, lit from below by the land ----------
+  // Cones read as cones. These are cones that have been broken: every ring of
+  // vertices is pushed in and out by noise and twisted, so the silhouette is
+  // shards, and the facets catch the lava light at different angles.
+  function makeCrag(seed) {
+    let h = seed * 9781 + 7;
+    const rnd = () => { h = (h * 1664525 + 1013904223) >>> 0; return h / 4294967296; };
+    const RAD = 9, ROW = 7;
+    const pos = [], idx = [];
+    // per-facet radial character, so one side of the crag is bitten away
+    const bite = [];
+    for (let a = 0; a < RAD; a++) bite.push(0.55 + rnd() * 0.75);
+    for (let r = 0; r <= ROW; r++) {
+      const v = r / ROW;                       // 0 base .. 1 tip
+      const taper = Math.pow(1 - v, 0.72);     // concave: fat base, needle tip
+      const twist = v * (rnd() - 0.5) * 1.4;
+      const leanX = (rnd() - 0.5) * 0.10 * v * v;
+      const leanZ = (rnd() - 0.5) * 0.10 * v * v;
+      for (let a = 0; a < RAD; a++) {
+        const ang = (a / RAD) * Math.PI * 2 + twist;
+        // step-in ledges: every other ring pulls in harder, making shelves
+        const ledge = (r % 2 === 0) ? 1.0 : 0.80;
+        const jag = 0.62 + rnd() * 0.62;
+        const rr = taper * bite[a] * ledge * jag;
+        pos.push(Math.cos(ang) * rr + leanX, v, Math.sin(ang) * rr + leanZ);
+      }
+    }
+    const tip = pos.length / 3;
+    pos.push(0, 1.0, 0);
+    for (let r = 0; r < ROW; r++) {
+      for (let a = 0; a < RAD; a++) {
+        const a2 = (a + 1) % RAD;
+        const p0 = r * RAD + a, p1 = r * RAD + a2;
+        const p2 = (r + 1) * RAD + a2, p3 = (r + 1) * RAD + a;
+        idx.push(p0, p1, p2, p0, p2, p3);
+      }
+    }
+    for (let a = 0; a < RAD; a++) idx.push(ROW * RAD + a, ROW * RAD + ((a + 1) % RAD), tip);
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g.setIndex(idx);
+    g.computeVertexNormals();
+    return g;
+  }
+
   {
-    const spikeGeo = new THREE.ConeGeometry(1, 1, 7, 3, true);
-    spikeGeo.translate(0, 0.5, 0);
-    const spikeMat = new THREE.ShaderMaterial({
-      vertexShader: /* glsl */`
-        attribute float aGlow;
-        varying vec3 vPos;
-        varying float vGlow;
-        void main() {
-          vPos = position;
-          vGlow = 1.0;
-          #ifdef USE_INSTANCING
-            gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(position, 1.0);
-          #else
-            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-          #endif
-        }
-      `,
-      fragmentShader: (`
-        precision highp float;
-        uniform float uTime;
-        uniform float uFire;
-        varying vec3 vPos;
-        __NOISE__
-        void main() {
-          // dark volcanic rock with molten veins climbing from the base
-          float ang = atan(vPos.z, vPos.x);
-          vec2 q = vec2(ang * 2.2, vPos.y * 5.0);
-          float veins = rfbm(q);
-          float vein = smoothstep(0.60, 0.90, veins) * (1.0 - smoothstep(0.30, 1.0, vPos.y));
-          float pulse = 0.7 + 0.3 * sin(uTime * 0.6 + ang * 3.0);
-          vec3 rock = mix(vec3(0.030, 0.014, 0.012), vec3(0.09, 0.045, 0.032), fbm(q * 1.7));
-          vec3 col = rock + vec3(1.0, 0.30, 0.03) * vein * pulse * uFire * 1.5;
-          gl_FragColor = vec4(col, 1.0);
-        }
-      `).replace('__NOISE__', NOISE),
-      uniforms: { uTime: { value: 0 }, uFire: { value: 1 } },
+    const CRAG_VERT = /* glsl */`
+      varying vec3 vN;
+      varying vec3 vP;
+      varying float vDepth;
+      void main() {
+        vP = position;
+        #ifdef USE_INSTANCING
+          vec4 wp = instanceMatrix * vec4(position, 1.0);
+          // normals survive the non-uniform instance scale well enough for rock
+          vN = normalize(mat3(instanceMatrix) * normal);
+        #else
+          vec4 wp = vec4(position, 1.0);
+          vN = normalize(normal);
+        #endif
+        vec4 mv = modelViewMatrix * wp;
+        vDepth = -mv.z;
+        gl_Position = projectionMatrix * mv;
+      }
+    `;
+    const CRAG_FRAG = (`
+      precision highp float;
+      uniform float uTime;
+      uniform float uFire;
+      varying vec3 vN;
+      varying vec3 vP;
+      varying float vDepth;
+      __NOISE__
+      void main() {
+        vec3 N = normalize(vN);
+        float ang = atan(vP.z, vP.x);
+        vec2 q = vec2(ang * 2.4, vP.y * 6.0);
+
+        // the rock itself is nearly black. It is only ever seen because
+        // something below it is burning.
+        float grain = fbm(q * 2.2);
+        vec3 rock = mix(vec3(0.008, 0.004, 0.003), vec3(0.042, 0.022, 0.015), grain);
+
+        // the land is the light: faces that look DOWN catch it, faces that
+        // look up at the dead sky stay black
+        float fromBelow = clamp(-N.y, 0.0, 1.0);
+        float side = clamp(0.45 + 0.55 * N.z, 0.0, 1.0);
+        vec3 lit = vec3(1.0, 0.30, 0.07) * fromBelow * (0.35 + 0.35 * grain) * uFire;
+        lit *= mix(0.10, 0.55, 1.0 - vP.y);           // only the feet catch it
+
+        // molten veins climbing out of the base
+        float veins = rfbm(q);
+        float vein = smoothstep(0.80, 0.97, veins) * (1.0 - smoothstep(0.02, 0.30, vP.y));
+        float pulse = 0.7 + 0.3 * sin(uTime * 0.6 + ang * 3.0);
+        vec3 col = rock + lit * 0.55 + vec3(1.0, 0.28, 0.03) * vein * pulse * uFire * 0.55;
+
+        // a hard rim where the horizon furnace grazes the edge
+        col += vec3(0.9, 0.26, 0.05) * pow(1.0 - abs(N.z), 6.0) * side * 0.14 * uFire;
+
+        // contrast: push the darks down so the shape reads as a silhouette
+        col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
+
+        // distance: the crag forest dissolves into the furnace haze
+        float fog = 1.0 - exp(-vDepth * 0.0065);
+        col = mix(col, vec3(0.085, 0.019, 0.006) * (0.35 + 0.65 * uFire), fog * 0.90);
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `).replace('__NOISE__', NOISE);
+
+    const cragU = { uTime: { value: 0 }, uFire: { value: 1 } };
+    timeU.push(cragU); fireU.push(cragU);
+    const cragMat = new THREE.ShaderMaterial({
+      vertexShader: CRAG_VERT, fragmentShader: CRAG_FRAG, uniforms: cragU,
     });
-    timeU.push(spikeMat.uniforms); fireU.push(spikeMat.uniforms);
-    const NSPK = 68;
-    const spikes = new THREE.InstancedMesh(spikeGeo, spikeMat, NSPK);
-    const sm = new THREE.Matrix4();
+
+    // four distinct crags, each instanced — variety without four draw calls
+    const VARIANTS = 4, NSPK = 84;
+    const geos = [];
+    for (let v = 0; v < VARIANTS; v++) geos.push(makeCrag(v + 1));
+    const counts = new Array(VARIANTS).fill(0);
     let hs = 99;
     const rnd = () => { hs = (hs * 1664525 + 1013904223) >>> 0; return hs / 4294967296; };
+    const specs = [];
     for (let i = 0; i < NSPK; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const x = side * (9 + rnd() * 55);
-      const z = 15 - rnd() * 195;
-      const h = 7 + rnd() * 28;
-      const r = 1.4 + rnd() * 3.2;
-      sm.compose(new THREE.Vector3(x, -1, z),
-                 new THREE.Quaternion().setFromEuler(
-                   new THREE.Euler((rnd() - 0.5) * 0.22, rnd() * 6.28, (rnd() - 0.5) * 0.22)),
-                 new THREE.Vector3(r, h, r));
-      spikes.setMatrixAt(i, sm);
+      // a dense wall close to the path, thinning as it runs to the horizon
+      const near = rnd() < 0.42;
+      const x = side * (near ? 7.5 + rnd() * 14 : 22 + rnd() * 62);
+      const z = 15 - rnd() * 205;
+      const h = near ? 5 + rnd() * 16 : 12 + rnd() * 34;
+      const r = (near ? 1.1 + rnd() * 2.0 : 2.0 + rnd() * 4.2);
+      const v = i % VARIANTS;
+      counts[v]++;
+      specs.push({ v, x, z, h, r, rx: (rnd() - 0.5) * 0.20,
+                   ry: rnd() * 6.28, rz: (rnd() - 0.5) * 0.20 });
     }
-    spikes.instanceMatrix.needsUpdate = true;
-    spikes.frustumCulled = false;
-    group.add(spikes);
+    const meshes = geos.map((g, v) => {
+      const m = new THREE.InstancedMesh(g, cragMat, Math.max(1, counts[v]));
+      m.frustumCulled = false;
+      group.add(m);
+      return m;
+    });
+    const fill = new Array(VARIANTS).fill(0);
+    const sm = new THREE.Matrix4();
+    for (const sp of specs) {
+      sm.compose(new THREE.Vector3(sp.x, -1.2, sp.z),
+                 new THREE.Quaternion().setFromEuler(new THREE.Euler(sp.rx, sp.ry, sp.rz)),
+                 new THREE.Vector3(sp.r, sp.h, sp.r));
+      meshes[sp.v].setMatrixAt(fill[sp.v]++, sm);
+    }
+    for (const m of meshes) m.instanceMatrix.needsUpdate = true;
   }
 
   // ---- the chains: heavy iron, sagging between every pair of posts,
@@ -788,17 +915,53 @@ export function createNaraka(scene) {
 
   // ---- fire-falls ------------------------------------------------------------
   const fallMeshes = [];
-  for (let i = 0; i < 18; i++) {
-    const u = { uTime: { value: 0 }, uForm: { value: 1 }, uSeed: { value: i / 18 } };
+  for (let i = 0; i < 9; i++) {
+    const u = { uTime: { value: 0 }, uForm: { value: 1 }, uSeed: { value: i / 9 } };
     timeU.push(u); fireU.push(u);
-    const q = shaderQuad(8 + (i % 3) * 3, 170 + (i % 4) * 30, FIREFALL_FRAG, u, { order: 4 });
-    const a = (i / 18) * Math.PI * 2 + 0.4;
-    const r = 95 + (i % 4) * 48;
-    q.position.set(Math.cos(a) * r, 55, Math.sin(a) * r - 40);
+    const q = shaderQuad(7 + (i % 3) * 3, 150 + (i % 4) * 34, FIREFALL_FRAG, u, { order: 4 });
+    const a = (i / 9) * Math.PI * 2 + 0.4;
+    const r = 175 + (i % 4) * 60;
+    q.position.set(Math.cos(a) * r, 58, Math.sin(a) * r - 60);
     q.rotation.y = -a + Math.PI / 2;
     group.add(q);
     fallMeshes.push(q);
   }
+
+  // ---- the bloom we cannot post-process: every hot thing gets a soft, huge,
+  // very low-alpha halo, so the heat bleeds into the air around it ------------
+  const BLOOM_FRAG = `
+    precision highp float;
+    uniform float uTime;
+    uniform float uFire;
+    uniform float uSeed;
+    uniform vec3  uCol;
+    varying vec2 vUv;
+    void main() {
+      vec2 p = vUv * 2.0 - 1.0;
+      float r2 = dot(p, p);
+      if (r2 > 1.0) discard;
+      // two stacked falloffs: a tight bright heart and a wide faint bleed
+      float tight = exp(-r2 * 7.0);
+      float wide  = exp(-r2 * 1.5) * 0.42;
+      float breathe = 0.86 + 0.14 * sin(uTime * 3.1 + uSeed * 29.0);
+      float a = (tight + wide) * (1.0 - r2) * uFire * breathe * 0.30;
+      if (a < 0.003) discard;
+      gl_FragColor = vec4(uCol * a * 2.2, a);
+    }
+  `;
+  function addBloom(x, y, z, size, col, seed) {
+    const u = { uTime: { value: 0 }, uFire: { value: 1 }, uSeed: { value: seed },
+                uCol: { value: new THREE.Color(col) } };
+    timeU.push(u); fireU.push(u);
+    const q = shaderQuad(size, size, BLOOM_FRAG, u, { order: 7, vert: BILLBOARD_VERT });
+    q.position.set(x, y, z);
+    group.add(q);
+    return q;
+  }
+  // the fire columns bleed into the sky
+  fallMeshes.forEach((q, i) => {
+    addBloom(q.position.x, q.position.y - 25, q.position.z, 60, 0xff5a14, i * 0.7);
+  });
 
   // ---- THE WATCHER ------------------------------------------------------------
   const watchDarkU = { uTime: { value: 0 }, uWatch: { value: 0 } };
@@ -819,7 +982,7 @@ export function createNaraka(scene) {
   const mawFallU = { uTime: { value: 0 }, uForm: { value: 0 }, uSeed: { value: 0.5 } };
   timeU.push(mawFallU);
   const mawFall = shaderQuad(14, 68, FIREFALL_FRAG, mawFallU, { order: 5 });
-  mawFall.position.set(0, 26, -232);
+  mawFall.position.set(0, 44, -238);
   group.add(mawFall);
 
   // ---- the gate: the real one, out of the forge -------------------------------
@@ -868,6 +1031,7 @@ export function createNaraka(scene) {
   const sway = [];                 // figures that writhe
   const tumblers = [];             // figures falling inside the fire columns
   const nearFallers = [];          // figures falling close enough to read
+  const clawers = [];              // the ones at the kerb, within arm's reach
   let potTopY = 1.45;              // refined once the cauldron GLB lands
   let liftFigures = null;          // figure cb registers; cauldron cb re-lifts
 
@@ -947,6 +1111,7 @@ export function createNaraka(scene) {
                              { order: 8, vert: BILLBOARD_VERT });
       rim.position.set(p.x, potH + 0.55, p.z);
       group.add(rim);
+      addBloom(p.x, potH + 1.6, p.z, 13, 0xff6a1c, (i * 0.53) % 1);
     });
     // the nearest pots carry the real lights
     potLights.forEach((L, i) => {
@@ -1008,13 +1173,30 @@ export function createNaraka(scene) {
       st.frustumCulled = false;
       group.add(st);
     }
+    // ---- THE KERB. This is the whole point of hell being in VR: something
+    // is close enough to touch you. They climb at the causeway edge, and when
+    // you draw level they lunge for the rail.
+    for (let i = 0; i < 13; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const z = -9 - i * 8.4 - (i % 3) * 2.2;
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.scale.setScalar(s * (1.0 + (i % 3) * 0.09));
+      // sunk below the kerb: only chest, shoulders and arms clear the stone
+      mesh.position.set(side * 2.25, -0.62, z);
+      mesh.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+      mesh.frustumCulled = false;
+      group.add(mesh);
+      clawers.push({ mesh, side, z, seed: i * 2.7,
+                     baseY: -0.62, baseX: side * 2.25 });
+    }
+
     // falling forever inside the fire columns
     for (let i = 0; i < 6; i++) {
       const mesh = new THREE.Mesh(geo, mat);
       mesh.scale.setScalar(s * 2.2);
       mesh.frustumCulled = false;
       group.add(mesh);
-      tumblers.push({ mesh, col: fallMeshes[i * 3], seed: i * 3.3 });
+      tumblers.push({ mesh, col: fallMeshes[i % fallMeshes.length], seed: i * 3.3 });
     }
     // and eight falling in the middle distance, close enough to read as PEOPLE
     for (let i = 0; i < 8; i++) {
@@ -1051,7 +1233,7 @@ export function createNaraka(scene) {
       for (const u of fireU) if (u.uForm) u.uForm.value = 1 - v * 0.85;
       gateU.uRelease.value = v;
       const dim = 1 - v * 0.9;
-      amb.intensity = 1.6 * dim + v * 2.2;          // white light takes over
+      amb.intensity = 1.05 * dim + v * 2.4;          // white light takes over
       amb.color.setRGB(0.19 + v * 0.7, 0.09 + v * 0.75, 0.04 + v * 0.8);
       for (const L of potLights) L.intensity = 20 * dim;
     },
@@ -1072,6 +1254,16 @@ export function createNaraka(scene) {
         s2.mesh.rotation.z = w * 0.17;
         s2.mesh.rotation.x = Math.sin(t * 0.6 + s2.seed * 1.7) * 0.13;
         s2.mesh.position.y = s2.baseY + Math.sin(t * 0.5 + s2.seed) * 0.13;
+      }
+      // the kerb: slow clawing, and a lunge when you come level with them
+      for (const c of clawers) {
+        const near = 1 - THREE.MathUtils.clamp(Math.abs(camPos.z - c.z) / 7.5, 0, 1);
+        const lunge = near * near;                     // sharp, only right beside you
+        const claw = Math.sin(t * 1.5 + c.seed) * 0.5 + 0.5;
+        c.mesh.position.y = c.baseY + claw * 0.16 + lunge * 0.62;
+        c.mesh.position.x = c.baseX - c.side * lunge * 0.42;   // reaches across
+        c.mesh.rotation.z = (Math.sin(t * 1.1 + c.seed * 1.7) * 0.12 - lunge * 0.30) * c.side;
+        c.mesh.rotation.x = -lunge * 0.34;             // torso thrown at you
       }
       for (const nf of nearFallers) {
         const cyc = ((t * nf.speed + nf.seed) % 1);
