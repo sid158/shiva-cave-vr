@@ -244,6 +244,8 @@ async function boot() {
   let drone = null;
   let voiceBus = null;
   let whooshGain = null;
+  let scream = null;
+  let screamAt = 0;
   let beat = null;
   function initAudioGraph() {
     if (ctx) return;
@@ -276,6 +278,49 @@ async function boot() {
       whooshGain.gain.value = 0;
       nsrc.connect(nbp).connect(whooshGain).connect(master);
       nsrc.start();
+
+      // ---- hell's voice: a distant cry, far off, never quite the same twice.
+      // A formant pair swept over a noise bed reads as a human throat without
+      // ever being a sample. Fired at random from the reveal to the mantra.
+      scream = (dist) => {
+        const t0 = ctx.currentTime + Math.random() * 0.25;
+        const dur = 1.1 + Math.random() * 1.4;
+        const base = 190 + Math.random() * 260;
+        const out = ctx.createGain();
+        out.gain.value = 0;
+        // distance: the far ones are quiet and dull, the near ones cut
+        const lp = ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 700 + (1 - dist) * 2600;
+        out.connect(lp).connect(master);
+        const peak = (0.030 + Math.random() * 0.035) * (1 - dist * 0.8);
+        out.gain.setValueAtTime(0.0001, t0);
+        out.gain.exponentialRampToValueAtTime(peak, t0 + dur * 0.18);
+        out.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+        // two formants and a rasp, all sliding down as the breath fails
+        for (const [mult, gain, q] of [[1, 0.9, 7], [2.6, 0.5, 11], [4.3, 0.22, 15]]) {
+          const o = ctx.createOscillator();
+          o.type = 'sawtooth';
+          o.frequency.setValueAtTime(base * mult * (0.9 + Math.random() * 0.25), t0);
+          o.frequency.exponentialRampToValueAtTime(base * mult * 0.55, t0 + dur);
+          const bp = ctx.createBiquadFilter();
+          bp.type = 'bandpass';
+          bp.frequency.value = base * mult;
+          bp.Q.value = q;
+          const g = ctx.createGain();
+          g.gain.value = gain;
+          o.connect(bp).connect(g).connect(out);
+          o.start(t0); o.stop(t0 + dur + 0.05);
+        }
+        // the breath behind the cry
+        const nb = ctx.createBufferSource();
+        nb.buffer = nbuf; nb.loop = true;
+        const nf = ctx.createBiquadFilter();
+        nf.type = 'bandpass'; nf.frequency.value = base * 2.2; nf.Q.value = 2.0;
+        const ng = ctx.createGain(); ng.gain.value = 0.16;
+        nb.connect(nf).connect(ng).connect(out);
+        nb.start(t0); nb.stop(t0 + dur + 0.05);
+      };
 
       // the damaru heart: a two-stroke pulse, deep and dry
       beat = (strength) => {
@@ -642,6 +687,16 @@ async function boot() {
         drone.level = (0.16 + hellV * 0.10) * (1 - releaseV);
       }
     }
+    // hell has voices in it. Random, far away, and they stop at the mantra.
+    if (scream && manualT === null && hellV > 0.25 && t < SEG4.mantra) {
+      if (t > screamAt) {
+        scream(0.25 + Math.random() * 0.7);
+        screamAt = t + 1.6 + Math.random() * 4.2;
+      }
+    } else if (manualT !== null) {
+      screamAt = t + 2.0;
+    }
+
     if (whooshGain && ctx && manualT === null) {
       const fireRoar = hellV * 0.30 * (1 - releaseV);
       const water = whiteV4 * 0.24;                    // the first water
