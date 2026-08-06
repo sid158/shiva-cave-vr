@@ -82,9 +82,18 @@ const POTFIRE_FRAG = /* glsl */`
     float tongues = rfbm(vec2(p.x * 3.0 + uSeed * 9.0, yy * 2.2 - uTime * (0.9 + uSeed * 0.3)));
     float body = tongues * (1.0 - yy * yy) * (1.0 - abs(p.x) * abs(p.x));
     body = pow(body, 1.4);
+    // the molten pool the tongues are born from — white-hot at the mouth
+    float pool = exp(-yy * 6.0) * max(0.0, 1.0 - abs(p.x) * abs(p.x) * 1.4);
+    pool *= 0.80 + 0.20 * sin(uTime * 2.1 + uSeed * 17.0);
+    // sparks spat upward off the surface
+    float spark = smoothstep(0.86, 0.97,
+      noise(vec2(p.x * 7.0 + uSeed * 23.0, yy * 3.0 - uTime * (1.6 + uSeed * 0.4))))
+      * (1.0 - yy * 0.6);
     vec3 col = mix(vec3(1.0, 0.25, 0.03), vec3(1.0, 0.75, 0.25), body);
     col = mix(col, vec3(1.0, 0.95, 0.7), pow(body, 3.0));
-    float a = body * uFire * 1.4;
+    col += vec3(1.0, 0.60, 0.16) * pool * 1.5 + vec3(1.0, 0.92, 0.62) * pool * pool * 1.3;
+    col += vec3(1.0, 0.55, 0.12) * spark * 1.4;
+    float a = (body + pool * 0.95 + spark * 0.6) * uFire * 1.4 * smoothstep(0.0, 0.07, yy);
     if (a < 0.006) discard;
     gl_FragColor = vec4(col * a * 1.8, a);
   }
@@ -109,7 +118,11 @@ const ROAD_FRAG = /* glsl */`
     vec3 stone = mix(vec3(0.024, 0.015, 0.011), vec3(0.058, 0.040, 0.030), cell);
     // the fire underneath breathes through the cracks
     float pulse = 0.6 + 0.4 * sin(uTime * 0.7 + p.y * 0.25);
-    vec3 col = stone + vec3(1.0, 0.26, 0.03) * crackLine * pulse * 0.4 * uFire;
+    vec3 col = stone + vec3(1.0, 0.26, 0.03) * crackLine * pulse * 0.62 * uFire;
+    float speck = smoothstep(0.965, 0.995, noise(p * 7.0));
+    col += vec3(1.0, 0.45, 0.10) * speck * (0.3 + crackLine) * pulse * uFire * 0.9;
+    // the whole slab drinks a little of the furnace light
+    col += vec3(0.30, 0.07, 0.02) * (0.22 + 0.18 * pulse) * uFire;
     // edges darker
     col *= 0.6 + 0.4 * smoothstep(0.0, 0.18, vUv.x) * smoothstep(1.0, 0.82, vUv.x);
     gl_FragColor = vec4(col, 1.0);
@@ -157,7 +170,7 @@ const HELLGLOW_FRAG = /* glsl */`
     float glow = exp(-vUv.y * 2.2);
     float lick = fbm(vec2(vUv.x * 16.0, vUv.y * 4.0 - uTime * 0.05));
     vec3 col = mix(vec3(0.50, 0.06, 0.01), vec3(1.0, 0.35, 0.06), glow * lick);
-    float a = glow * (0.4 + 0.4 * lick) * uForm * 0.85;
+    float a = glow * (0.45 + 0.45 * lick) * uForm * 1.0;
     if (a < 0.004) discard;
     gl_FragColor = vec4(col * a * 2.4, a);
   }
@@ -180,7 +193,7 @@ const FIREFALL_FRAG = /* glsl */`
     float streaks = pow(noise(vec2(vUv.x * 9.0 + uSeed * 31.0, vUv.y * 5.0 + uTime * (0.55 + uSeed * 0.2))), 2.0);
     float vf = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
     vec3 col = mix(vec3(0.9, 0.20, 0.03), vec3(1.0, 0.65, 0.20), streaks);
-    float a = core * (streaks * 1.5 + 0.22) * vf * uForm * 1.25;
+    float a = core * (streaks * 1.5 + 0.22) * vf * uForm * 1.45;
     if (a < 0.004) discard;
     gl_FragColor = vec4(col * a * 2.0, a);
   }
@@ -256,10 +269,10 @@ const WATCHER_GLOW_FRAG = /* glsl */`
     float rr = length(e * vec2(1.0, 1.12));
     float rim = exp(-pow(rr - 0.52, 2.0) * 34.0) * (0.35 + 0.65 * smoke);
     col += mix(vec3(0.30, 0.05, 0.015), vec3(0.75, 0.55, 0.65), uBolt) * rim
-         * (0.10 + uBolt * 2.6);
+         * (0.16 + uBolt * 2.6);
 
     float horns = max(hornArc(p, -1.0), hornArc(p, 1.0));
-    col += vec3(0.60, 0.16, 0.03) * horns * (0.08 + smoke * 0.06 + uBolt * 1.6);
+    col += vec3(0.60, 0.16, 0.03) * horns * (0.13 + smoke * 0.08 + uBolt * 1.6);
 
     // the eyes: two dim embers, always slightly wrong to look at. They do
     // not glow — they SMOULDER, and they never blink.
@@ -267,7 +280,7 @@ const WATCHER_GLOW_FRAG = /* glsl */`
       vec2 c = vec2(0.20 * float(s), 0.04);
       vec2 q = p - c;
       float eye = 1.0 - smoothstep(0.030, 0.085, length(q * vec2(1.0, 1.8)));
-      float smoulder = 0.30 + 0.10 * sin(uTime * 0.23 + float(s));
+      float smoulder = 0.40 + 0.12 * sin(uTime * 0.23 + float(s));
       col += vec3(0.85, 0.16, 0.02) * eye * (smoulder + uBolt * 1.2);
       vec2 pq = q - uLook * 0.035;
       float pupil = 1.0 - smoothstep(0.010, 0.026, length(pq * vec2(1.0, 0.9)));
@@ -278,7 +291,7 @@ const WATCHER_GLOW_FRAG = /* glsl */`
     float mawLine = p.y + 0.40 + sin(p.x * 14.0) * 0.012;
     float maw = exp(-mawLine * mawLine * 2600.0) * exp(-p.x * p.x * 5.0);
     float breathe = 0.5 + 0.5 * sin(uTime * 0.31);
-    col += vec3(0.75, 0.14, 0.02) * maw * (0.12 + breathe * 0.10 + uBolt * 0.9);
+    col += vec3(0.75, 0.14, 0.02) * maw * (0.16 + breathe * 0.12 + uBolt * 0.9);
 
     float lum = dot(col, vec3(0.5));
     float a = min(lum, 1.0) * uWatch;
@@ -304,13 +317,13 @@ const GATE_FRAG = /* glsl */`
     float arch = 1.0 - smoothstep(0.30, 0.44, length(vec2(p.x, max(0.0, p.y + 0.15) * 0.8)));
     // towers either side: dark, spiked
     float towers = step(0.55, abs(p.x)) * step(p.y, 0.35 + rfbm(vec2(p.x * 4.0, 0.0)) * 0.4);
-    vec3 fire = mix(vec3(0.9, 0.25, 0.04), vec3(1.0, 0.8, 0.45), fbm(p * 3.0 + uTime * 0.05));
+    vec3 fire = mix(vec3(0.75, 0.16, 0.03), vec3(1.0, 0.55, 0.16), fbm(p * 3.0 + uTime * 0.05));
     vec3 white = vec3(1.0, 0.98, 0.92);
     vec3 glowCol = mix(fire, white, uRelease);
     float flicker = mix(0.7 + 0.3 * fbm(vec2(uTime * 0.4, p.y * 3.0)), 1.0, uRelease);
-    vec3 col = glowCol * arch * flicker * (0.7 + uRelease * 1.4);
+    vec3 col = glowCol * arch * flicker * (0.55 + uRelease * 1.55);
     col = mix(col, vec3(0.010, 0.005, 0.006), towers);
-    float a = max(arch * (0.75 + uRelease * 0.25), towers * 0.92) * uForm;
+    float a = max(arch * (0.60 + uRelease * 0.40), towers * 0.92) * uForm;
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }
@@ -382,11 +395,14 @@ export function createNaraka(scene) {
           float under = exp(-max(h, 0.0) * 3.2);
           float horizon = exp(-abs(h) * 6.0);
 
-          vec3 deep = vec3(0.020, 0.006, 0.004);
-          vec3 brown = vec3(0.16, 0.045, 0.015);
+          vec3 deep = vec3(0.010, 0.003, 0.002);
+          vec3 brown = vec3(0.13, 0.036, 0.012);
           vec3 hot = vec3(0.55, 0.13, 0.03);
-          vec3 col = mix(deep, brown, under * (0.4 + 0.6 * churn));
+          vec3 col = mix(deep, brown, under * (0.25 + 0.75 * churn * churn));
           col = mix(col, hot, horizon * (0.5 + 0.5 * churn));
+          // the furnace beyond the gate: the sky burns hardest dead ahead
+          float toGate = smoothstep(0.15, 0.95, -d.z);
+          col += hot * toGate * horizon * (0.45 + 0.55 * churn) * 0.55;
           // lightning inside the churn
           col += vec3(0.85, 0.55, 0.55) * uBolt * churn * under * 1.4;
           // the mantra starves the fire out of the sky
@@ -470,7 +486,7 @@ export function createNaraka(scene) {
   }
 
   // ---- light, so the models exist ------------------------------------------
-  const amb = new THREE.AmbientLight(0x431f0d, 2.4);
+  const amb = new THREE.AmbientLight(0x4a220e, 2.6);
   group.add(amb);
   const potLights = [];
   for (let i = 0; i < 4; i++) {
@@ -602,24 +618,172 @@ export function createNaraka(scene) {
     group.add(spikes);
   }
 
-  // ---- the chains: sagging between every pair of posts ------------------------
+  // ---- the chains: heavy iron, sagging between every pair of posts,
+  // thick enough to catch the firelight ----------------------------------------
   {
-    const chainMat = new THREE.LineBasicMaterial({ color: 0x120a06 });
+    const pos = [], norm = [], idx = [];
+    const half = 0.034;
     for (const x of [-1.9, 1.9]) {
-      const pts = [];
-      for (let z = 4; z >= -148; z -= 4.5) {
+      const nx = x > 0 ? -1 : 1;                    // faces the causeway
+      for (let z = 4; z >= -148 + 4.5; z -= 4.5) {
         const zn = z - 4.5;
-        for (let k = 0; k <= 6; k++) {
-          const f = k / 6;
-          pts.push(new THREE.Vector3(
-            x, 0.88 - Math.sin(f * Math.PI) * 0.22, z + (zn - z) * f));
+        for (let k = 0; k < 7; k++) {
+          const f0 = k / 7, f1 = (k + 1) / 7;
+          const y0 = 0.88 - Math.sin(f0 * Math.PI) * 0.24;
+          const y1 = 0.88 - Math.sin(f1 * Math.PI) * 0.24;
+          const z0 = z + (zn - z) * f0, z1 = z + (zn - z) * f1;
+          const base = pos.length / 3;
+          pos.push(x, y0 - half, z0,  x, y0 + half, z0,
+                   x, y1 + half, z1,  x, y1 - half, z1);
+          for (let q = 0; q < 4; q++) norm.push(nx, 0, 0);
+          idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
         }
       }
-      const line = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(pts), chainMat);
-      line.frustumCulled = false;
-      group.add(line);
     }
+    const g2 = new THREE.BufferGeometry();
+    g2.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    g2.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    g2.setIndex(idx);
+    const chains = new THREE.Mesh(g2, new THREE.MeshStandardMaterial({
+      color: 0x1a120b, roughness: 0.55, metalness: 0.65, side: THREE.DoubleSide,
+    }));
+    chains.frustumCulled = false;
+    group.add(chains);
+  }
+
+  // ---- small flames on the posts: the candles of the damned -------------------
+  {
+    const centers = [];
+    for (let z = 4; z >= -148; z -= 4.5) {
+      for (const x of [-1.9, 1.9]) {
+        if (centers.length >= 68) break;
+        centers.push([x, 1.08, z]);
+      }
+    }
+    const N = centers.length;
+    const aCenter = new Float32Array(N * 4 * 3);
+    const aCorner = new Float32Array(N * 4 * 2);
+    const aSeed = new Float32Array(N * 4);
+    const tidx = [];
+    centers.forEach(([x, y, z], i) => {
+      const sd = (i * 0.61803) % 1;
+      const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+      for (let q = 0; q < 4; q++) {
+        const v = i * 4 + q;
+        aCenter.set([x, y, z], v * 3);
+        aCorner.set(corners[q], v * 2);
+        aSeed[v] = sd;
+      }
+      const b = i * 4;
+      tidx.push(b, b + 1, b + 2, b, b + 2, b + 3);
+    });
+    const tg = new THREE.BufferGeometry();
+    tg.setAttribute('aCenter', new THREE.BufferAttribute(aCenter, 3));
+    tg.setAttribute('aCorner', new THREE.BufferAttribute(aCorner, 2));
+    tg.setAttribute('aSeed', new THREE.BufferAttribute(aSeed, 1));
+    tg.setAttribute('position', new THREE.BufferAttribute(new Float32Array(N * 4 * 3), 3));
+    tg.setIndex(tidx);
+    const torchU = { uTime: { value: 0 }, uFire: { value: 1 } };
+    timeU.push(torchU); fireU.push(torchU);
+    const torches = new THREE.Mesh(tg, new THREE.ShaderMaterial({
+      uniforms: torchU,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: /* glsl */`
+        attribute vec3 aCenter;
+        attribute vec2 aCorner;
+        attribute float aSeed;
+        varying vec2 vUv;
+        varying float vSeed;
+        void main() {
+          vUv = aCorner * 0.5 + 0.5;
+          vSeed = aSeed;
+          vec4 c = modelViewMatrix * vec4(aCenter, 1.0);
+          c.xy += aCorner * vec2(0.16, 0.30);
+          gl_Position = projectionMatrix * c;
+        }
+      `,
+      fragmentShader: (`
+        precision highp float;
+        uniform float uTime;
+        uniform float uFire;
+        varying vec2 vUv;
+        varying float vSeed;
+        __NOISE__
+        void main() {
+          float y = vUv.y;
+          float x = vUv.x * 2.0 - 1.0 + sin(uTime * 9.0 + vSeed * 41.0) * 0.10 * y;
+          float n = noise(vec2(vSeed * 37.0 + x * 3.0, y * 3.5 - uTime * (2.0 + vSeed)));
+          float shape = (1.0 - y) * exp(-x * x * (5.0 + y * 22.0));
+          vec3 col = mix(vec3(1.0, 0.42, 0.08), vec3(1.0, 0.85, 0.45), shape * n * 2.0);
+          float a = shape * (0.45 + n * 0.75) * uFire;
+          if (a < 0.006) discard;
+          gl_FragColor = vec4(col * a * 1.7, a);
+        }
+      `).replace('__NOISE__', NOISE),
+    }));
+    torches.renderOrder = 9;
+    torches.frustumCulled = false;
+    group.add(torches);
+  }
+
+  // ---- ash and sparks riding the wind, everywhere ------------------------------
+  {
+    const NE = 720;
+    const base = new Float32Array(NE * 3);
+    const seed = new Float32Array(NE);
+    let eh = 7;
+    const ern = () => { eh = (eh * 1664525 + 1013904223) >>> 0; return eh / 4294967296; };
+    for (let i = 0; i < NE; i++) {
+      base[i * 3] = (ern() * 2 - 1) * 75;
+      base[i * 3 + 1] = ern() * 34;
+      base[i * 3 + 2] = 20 - ern() * 215;
+      seed[i] = ern();
+    }
+    const eg = new THREE.BufferGeometry();
+    eg.setAttribute('position', new THREE.BufferAttribute(base, 3));
+    eg.setAttribute('aSeed', new THREE.BufferAttribute(seed, 1));
+    const emberU = { uTime: { value: 0 }, uFire: { value: 1 } };
+    timeU.push(emberU); fireU.push(emberU);
+    const embers = new THREE.Points(eg, new THREE.ShaderMaterial({
+      uniforms: emberU,
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: /* glsl */`
+        uniform float uTime;
+        attribute float aSeed;
+        varying float vA;
+        void main() {
+          vec3 p = position;
+          float rise = mod(p.y + uTime * (0.55 + aSeed * 0.9), 34.0);
+          p.y = rise;
+          p.x += sin(uTime * (0.31 + aSeed * 0.4) + aSeed * 31.0) * (2.0 + aSeed * 3.0);
+          p.z += cos(uTime * 0.23 + aSeed * 17.0) * 1.6;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          float sz = (1.4 + aSeed * 2.4) * (120.0 / max(-mv.z, 2.0));
+          gl_PointSize = clamp(sz, 1.0, 10.0);
+          // brightest low, fading as the ash climbs and cools
+          vA = (0.25 + aSeed * 0.5) * (1.0 - rise / 40.0);
+          gl_Position = projectionMatrix * mv;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        precision highp float;
+        uniform float uFire;
+        varying float vA;
+        void main() {
+          vec2 q = gl_PointCoord * 2.0 - 1.0;
+          float r2 = dot(q, q);
+          if (r2 > 1.0) discard;
+          float g = exp(-r2 * 3.0);
+          vec3 col = mix(vec3(1.0, 0.22, 0.04), vec3(1.0, 0.62, 0.18), g);
+          float a = g * vA * uFire;
+          if (a < 0.006) discard;
+          gl_FragColor = vec4(col * a * 1.8, a);
+        }
+      `,
+    }));
+    embers.renderOrder = 7;
+    embers.frustumCulled = false;
+    group.add(embers);
   }
 
   // ---- fire-falls ------------------------------------------------------------
@@ -662,9 +826,9 @@ export function createNaraka(scene) {
   const gateU = { uTime: { value: 0 }, uForm: { value: 1 }, uRelease: { value: 0 } };
   timeU.push(gateU);
   // the light INSIDE the arch — hellfire until the mantra turns it white
-  const gate = shaderQuad(34, 40, GATE_FRAG, gateU,
+  const gate = shaderQuad(22, 28, GATE_FRAG, gateU,
                           { blending: THREE.NormalBlending, order: 5 });
-  gate.position.set(0, 14, -168);
+  gate.position.set(0, 10, -168);
   group.add(gate);
 
   new GLTFLoader().setMeshoptDecoder(MeshoptDecoder).load('assets/models/gate.glb', (g) => {
@@ -682,7 +846,9 @@ export function createNaraka(scene) {
       : new THREE.MeshStandardMaterial({ color: 0x201410, roughness: 0.92 });
     const mesh = new THREE.Mesh(geo, mat);
     mesh.scale.setScalar(sg);
-    mesh.position.set(0, -bb.min.y * sg - 0.4, -166);
+    // centre the arch over the road — the model's origin is off to one side
+    mesh.position.set(-(bb.min.x + bb.max.x) * 0.5 * sg,
+                      -bb.min.y * sg - 0.4, -166);
     mesh.frustumCulled = false;
     group.add(mesh);
     // a light of its own, so the ironwork reads against the dark
@@ -702,6 +868,8 @@ export function createNaraka(scene) {
   const sway = [];                 // figures that writhe
   const tumblers = [];             // figures falling inside the fire columns
   const nearFallers = [];          // figures falling close enough to read
+  let potTopY = 1.45;              // refined once the cauldron GLB lands
+  let liftFigures = null;          // figure cb registers; cauldron cb re-lifts
 
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
@@ -743,15 +911,42 @@ export function createNaraka(scene) {
     pads.frustumCulled = false;
     group.add(pads);
 
-    // fire above every mouth
+    // fire above every mouth — born out of a molten pool at the rim
     const potH = size.y * s;
+    potTopY = potH;
+    if (liftFigures) liftFigures();
+    const RIM_FRAG = (`
+      precision highp float;
+      uniform float uTime;
+      uniform float uFire;
+      uniform float uSeed;
+      varying vec2 vUv;
+      void main() {
+        vec2 p = vUv * 2.0 - 1.0;
+        float r2 = dot(p, p);
+        if (r2 > 1.0) discard;
+        float g = exp(-r2 * 3.4);
+        float flick = 0.82 + 0.18 * sin(uTime * 6.3 + uSeed * 31.0);
+        vec3 col = mix(vec3(1.0, 0.32, 0.05), vec3(1.0, 0.72, 0.30), g);
+        float a = g * (1.0 - r2) * uFire * flick * 0.55;
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(col * a * 1.7, a);
+      }
+    `);
     potPositions.forEach((p, i) => {
       const u = { uTime: { value: 0 }, uFire: { value: 1 }, uSeed: { value: (i * 0.37) % 1 } };
       timeU.push(u); fireU.push(u);
-      const f = shaderQuad(3.3, 4.3, POTFIRE_FRAG, u,
+      const f = shaderQuad(4.0, 5.0, POTFIRE_FRAG, u,
                            { order: 9, vert: BILLBOARD_VERT });
-      f.position.set(p.x, potH + 1.3, p.z);
+      f.position.set(p.x, potH + 1.45, p.z);
       group.add(f);
+      // the spill of light over the rim and onto the souls inside
+      const ru = { uTime: { value: 0 }, uFire: { value: 1 }, uSeed: { value: (i * 0.71) % 1 } };
+      timeU.push(ru); fireU.push(ru);
+      const rim = shaderQuad(4.6, 4.6, RIM_FRAG, ru,
+                             { order: 8, vert: BILLBOARD_VERT });
+      rim.position.set(p.x, potH + 0.55, p.z);
+      group.add(rim);
     });
     // the nearest pots carry the real lights
     potLights.forEach((L, i) => {
@@ -771,18 +966,47 @@ export function createNaraka(scene) {
     // souls are silhouettes — near-black, the fire does the talking
     const mat = new THREE.MeshStandardMaterial({ color: 0x120b08, roughness: 1.0 });
 
+    // the souls are IN the cauldrons — arms up out of the molten light
     for (let i = 0; i < potPositions.length; i++) {
-      const n = 1 + (i % 2);
+      const n = (i < 8 ? 2 : 1) + (i % 2);
       for (let k = 0; k < n; k++) {
         const mesh = new THREE.Mesh(geo, mat);
         const p = potPositions[i];
-        mesh.scale.setScalar(s * (0.9 + (k * 0.13)));
-        mesh.position.set(p.x + (k ? 0.45 : -0.3), 0.55, p.z + (k ? -0.2 : 0.25));
+        const ang = i * 2.1 + k * 2.4;
+        const dy = -0.38 - k * 0.16;
+        mesh.scale.setScalar(s * (0.85 + k * 0.10));
+        mesh.position.set(p.x + Math.cos(ang) * 0.42, potTopY + dy,
+                          p.z + Math.sin(ang) * 0.42);
         mesh.rotation.y = (i * 2.1 + k * 2.8) % 6.28;
         mesh.frustumCulled = false;
         group.add(mesh);
-        sway.push({ mesh, seed: i * 1.3 + k * 7.7, baseY: mesh.position.y });
+        sway.push({ mesh, seed: i * 1.3 + k * 7.7, baseY: mesh.position.y, dy, pot: i });
       }
+    }
+    liftFigures = () => {
+      for (const s2 of sway) {
+        if (s2.pot === undefined) continue;
+        const ny = potTopY + s2.dy;
+        s2.mesh.position.y += ny - s2.baseY;
+        s2.baseY = ny;
+      }
+    };
+    liftFigures();
+    // stone witnesses on pedestals along the walk
+    const pedGeo = new THREE.CylinderGeometry(0.55, 0.78, 2.6, 8);
+    const pedMat = new THREE.MeshStandardMaterial({ color: 0x171008, roughness: 1.0 });
+    for (let i = 0; i < 4; i++) {
+      const side = i % 2 ? 1 : -1;
+      const z = -22 - i * 26;
+      const ped = new THREE.Mesh(pedGeo, pedMat);
+      ped.position.set(side * 3.7, 0.3, z);
+      group.add(ped);
+      const st = new THREE.Mesh(geo, mat);
+      st.scale.setScalar(s * 1.12);
+      st.position.set(side * 3.7, 1.6, z);
+      st.rotation.y = side > 0 ? -1.25 : 1.25;
+      st.frustumCulled = false;
+      group.add(st);
     }
     // falling forever inside the fire columns
     for (let i = 0; i < 6; i++) {
@@ -845,9 +1069,9 @@ export function createNaraka(scene) {
       // souls writhe — slowly, which is worse
       for (const s2 of sway) {
         const w = Math.sin(t * 0.9 + s2.seed);
-        s2.mesh.rotation.z = w * 0.14;
-        s2.mesh.rotation.x = Math.sin(t * 0.6 + s2.seed * 1.7) * 0.10;
-        s2.mesh.position.y = s2.baseY + Math.sin(t * 0.5 + s2.seed) * 0.10;
+        s2.mesh.rotation.z = w * 0.17;
+        s2.mesh.rotation.x = Math.sin(t * 0.6 + s2.seed * 1.7) * 0.13;
+        s2.mesh.position.y = s2.baseY + Math.sin(t * 0.5 + s2.seed) * 0.13;
       }
       for (const nf of nearFallers) {
         const cyc = ((t * nf.speed + nf.seed) % 1);
