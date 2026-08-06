@@ -289,7 +289,7 @@ const WATCHER_GLOW_FRAG = /* glsl */`
     vec2 e = p; e.y = (e.y - 0.02) * 1.05;
     float rr = length(e * vec2(1.0, 1.12));
     float rim = exp(-pow(rr - 0.52, 2.0) * 34.0) * (0.35 + 0.65 * smoke);
-    col += mix(vec3(0.30, 0.05, 0.015), vec3(0.75, 0.55, 0.65), uBolt) * rim
+    col += mix(vec3(0.30, 0.05, 0.015), vec3(0.80, 0.10, 0.05), uBolt) * rim
          * (0.16 + uBolt * 2.6);
 
     float horns = max(hornArc(p, -1.0), hornArc(p, 1.0));
@@ -425,7 +425,7 @@ export function createNaraka(scene) {
           float toGate = smoothstep(0.15, 0.95, -d.z);
           col += hot * toGate * horizon * (0.45 + 0.55 * churn) * 0.55;
           // lightning inside the churn
-          col += vec3(0.85, 0.55, 0.55) * uBolt * churn * under * 1.4;
+          col += vec3(0.90, 0.09, 0.045) * uBolt * churn * under * 1.9;
           // the mantra starves the fire out of the sky
           col *= (1.0 - uDie * 0.9);
           gl_FragColor = vec4(col, uForm);
@@ -513,7 +513,7 @@ export function createNaraka(scene) {
           rock += vec3(1.0, 0.52, 0.10) * pow(shore, 2.2) * 0.85;
 
           vec3 col = mix(melt, rock, crustM);
-          col *= uFire * 0.85 + 0.15;
+          col *= (uFire * 0.85 + 0.15) * 0.7;
 
           // ---- aerial perspective toward the furnace horizon --------------
           float dist = d / 380.0;
@@ -543,17 +543,27 @@ export function createNaraka(scene) {
         float n = fbm(vec2(p.x * 2.5 + uTime * 0.02 + uSeed * 7.0, p.y * 2.0));
         float body = exp(-p.y * 1.8 - 1.8) * (0.5 + 0.5 * n);
         body += exp(-p.y * p.y * 2.0) * n * 0.15;
-        float a = body * uForm * 0.16;
+        float a = body * uForm * 0.21;
         if (a < 0.004) discard;
         gl_FragColor = vec4(vec3(0.55, 0.14, 0.03) * (0.6 + n * 0.6) * a * 2.0, a);
       }
     `).replace('__NOISE__', NOISE);
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       const u = { uTime: { value: 0 }, uForm: { value: 1 }, uSeed: { value: i * 0.41 } };
       timeU.push(u); fireU.push(u);
-      const m2 = shaderQuad(140, 40, HAZE_FRAG, u, { order: 8 });
-      m2.position.set(0, 12, -60 - i * 45);
+      const m2 = shaderQuad(150, 42, HAZE_FRAG, u, { order: 8 });
+      m2.position.set(0, 11, -28 - i * 36);
       group.add(m2);
+    }
+    // and ground mist crawling off the melt onto the causeway banks
+    for (let i = 0; i < 8; i++) {
+      const u = { uTime: { value: 0 }, uForm: { value: 1 }, uSeed: { value: 3.7 + i * 0.83 } };
+      timeU.push(u); fireU.push(u);
+      const m3 = shaderQuad(30, 7, HAZE_FRAG, u, { order: 8 });
+      const side = i % 2 === 0 ? -1 : 1;
+      m3.position.set(side * (6.5 + (i % 3) * 2.0), 0.9, -12 - i * 17);
+      m3.rotation.y = side * 0.35;
+      group.add(m3);
     }
   }
 
@@ -628,160 +638,67 @@ export function createNaraka(scene) {
   glowShell.frustumCulled = false;
   group.add(glowShell);
 
-  // ---- the crag forest: jagged basalt, lit from below by the land ----------
-  // Cones read as cones. These are cones that have been broken: every ring of
-  // vertices is pushed in and out by noise and twisted, so the silhouette is
-  // shards, and the facets catch the lava light at different angles.
-  function makeCrag(seed) {
-    let h = seed * 9781 + 7;
-    const rnd = () => { h = (h * 1664525 + 1013904223) >>> 0; return h / 4294967296; };
-    const RAD = 9, ROW = 7;
-    const pos = [], idx = [];
-    // per-facet radial character, so one side of the crag is bitten away
-    const bite = [];
-    for (let a = 0; a < RAD; a++) bite.push(0.55 + rnd() * 0.75);
-    for (let r = 0; r <= ROW; r++) {
-      const v = r / ROW;                       // 0 base .. 1 tip
-      const taper = Math.pow(1 - v, 0.72);     // concave: fat base, needle tip
-      const twist = v * (rnd() - 0.5) * 1.4;
-      const leanX = (rnd() - 0.5) * 0.10 * v * v;
-      const leanZ = (rnd() - 0.5) * 0.10 * v * v;
-      for (let a = 0; a < RAD; a++) {
-        const ang = (a / RAD) * Math.PI * 2 + twist;
-        // step-in ledges: every other ring pulls in harder, making shelves
-        const ledge = (r % 2 === 0) ? 1.0 : 0.80;
-        const jag = 0.62 + rnd() * 0.62;
-        const rr = taper * bite[a] * ledge * jag;
-        pos.push(Math.cos(ang) * rr + leanX, v, Math.sin(ang) * rr + leanZ);
-      }
-    }
-    const tip = pos.length / 3;
-    pos.push(0, 1.0, 0);
-    for (let r = 0; r < ROW; r++) {
-      for (let a = 0; a < RAD; a++) {
-        const a2 = (a + 1) % RAD;
-        const p0 = r * RAD + a, p1 = r * RAD + a2;
-        const p2 = (r + 1) * RAD + a2, p3 = (r + 1) * RAD + a;
-        idx.push(p0, p1, p2, p0, p2, p3);
-      }
-    }
-    for (let a = 0; a < RAD; a++) idx.push(ROW * RAD + a, ROW * RAD + ((a + 1) % RAD), tip);
-    const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-    g.setIndex(idx);
-    g.computeVertexNormals();
-    return g;
-  }
-
+  // ---- THE BAKED WORLD -------------------------------------------------------
+  // Modelled and lit in Blender: three rings of the Meshy basalt spires,
+  // terraced basins carrying the cauldrons, souls frozen in the melt, and a
+  // lava lake whose surface came out of a fluid simulation. All lighting is
+  // Cycles global illumination baked into the textures — the cave's pipeline.
+  const bakedMats = [];          // dimmed together at the mantra
+  let lavaBakedU = null;
   {
-    const CRAG_VERT = /* glsl */`
-      varying vec3 vN;
-      varying vec3 vP;
-      varying float vDepth;
-      void main() {
-        vP = position;
-        #ifdef USE_INSTANCING
-          vec4 wp = instanceMatrix * vec4(position, 1.0);
-          // normals survive the non-uniform instance scale well enough for rock
-          vN = normalize(mat3(instanceMatrix) * normal);
-        #else
-          vec4 wp = vec4(position, 1.0);
-          vN = normalize(normal);
-        #endif
-        vec4 mv = modelViewMatrix * wp;
-        vDepth = -mv.z;
-        gl_Position = projectionMatrix * mv;
-      }
-    `;
-    const CRAG_FRAG = (`
-      precision highp float;
-      uniform float uTime;
-      uniform float uFire;
-      varying vec3 vN;
-      varying vec3 vP;
-      varying float vDepth;
-      __NOISE__
-      void main() {
-        vec3 N = normalize(vN);
-        float ang = atan(vP.z, vP.x);
-        vec2 q = vec2(ang * 2.4, vP.y * 6.0);
-
-        // the rock itself is nearly black. It is only ever seen because
-        // something below it is burning.
-        float grain = fbm(q * 2.2);
-        vec3 rock = mix(vec3(0.008, 0.004, 0.003), vec3(0.042, 0.022, 0.015), grain);
-
-        // the land is the light: faces that look DOWN catch it, faces that
-        // look up at the dead sky stay black
-        float fromBelow = clamp(-N.y, 0.0, 1.0);
-        float side = clamp(0.45 + 0.55 * N.z, 0.0, 1.0);
-        // standing in a lake of molten rock: the light comes from underneath
-        // and dies away up the shaft
-        vec3 lit = vec3(1.0, 0.34, 0.06) * (0.30 + 0.70 * fromBelow)
-                 * (0.45 + 0.55 * grain) * uFire;
-        lit *= mix(0.06, 1.55, pow(1.0 - vP.y, 2.0));
-
-        // molten veins climbing out of the base
-        float veins = rfbm(q);
-        float vein = smoothstep(0.80, 0.97, veins) * (1.0 - smoothstep(0.02, 0.30, vP.y));
-        float pulse = 0.7 + 0.3 * sin(uTime * 0.6 + ang * 3.0);
-        vec3 col = rock + lit * 0.95 + vec3(1.0, 0.30, 0.03) * vein * pulse * uFire * 0.85;
-
-        // a hard rim where the horizon furnace grazes the edge
-        col += vec3(1.0, 0.34, 0.07) * pow(1.0 - abs(N.z), 4.0) * side * 0.36 * uFire;
-
-        // contrast: push the darks down so the shape reads as a silhouette
-        col = clamp(col, 0.0, 1.0); col = col * col * (3.0 - 2.0 * col);
-
-        // distance: the crag forest dissolves into the furnace haze
-        float fog = 1.0 - exp(-vDepth * 0.0065);
-        col = mix(col, vec3(0.52, 0.135, 0.030) * (0.30 + 0.70 * uFire), fog * 0.88);
-        gl_FragColor = vec4(col, 1.0);
-      }
-    `).replace('__NOISE__', NOISE);
-
-    const cragU = { uTime: { value: 0 }, uFire: { value: 1 } };
-    timeU.push(cragU); fireU.push(cragU);
-    const cragMat = new THREE.ShaderMaterial({
-      vertexShader: CRAG_VERT, fragmentShader: CRAG_FRAG, uniforms: cragU,
+    const envLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
+    envLoader.load('assets/models/hell_env.glb', (g) => {
+      g.scene.traverse((o) => {
+        if (!o.isMesh) return;
+        const map = o.material && o.material.map ? o.material.map : null;
+        if (map) { map.colorSpace = THREE.SRGBColorSpace; map.anisotropy = 4; }
+        // gltfpack renames meshes — the MATERIAL name survives the merge
+        const mname = (o.material && o.material.name) || '';
+        if (mname.startsWith('lava_surface')) {
+          lavaBakedU = { uTime: { value: 0 }, uDie: { value: 0 } };
+          o.material = new THREE.ShaderMaterial({
+            uniforms: { uMap: { value: map }, uTime: lavaBakedU.uTime, uDie: lavaBakedU.uDie },
+            vertexShader: /* glsl */`
+              varying vec2 vUv;
+              void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+              }
+            `,
+            fragmentShader: /* glsl */`
+              precision highp float;
+              uniform sampler2D uMap;
+              uniform float uTime;
+              uniform float uDie;
+              varying vec2 vUv;
+              void main() {
+                vec3 col = texture2D(uMap, vUv).rgb;
+                float heat = dot(col, vec3(0.6, 0.3, 0.1));
+                float shimmer = 0.88 + 0.24 * sin(uTime * 0.8 + heat * 21.0)
+                                       * smoothstep(0.12, 0.55, heat);
+                col = clamp(col * 2.1 * shimmer, 0.0, 1.0);
+                col = col * col * (3.0 - 2.0 * col);   // deep crust, blazing veins
+                col *= (1.0 - uDie * 0.93);
+                gl_FragColor = vec4(col, 1.0);
+              }
+            `,
+          });
+        } else {
+          const m2 = new THREE.MeshBasicMaterial({ map });
+          // grade per group: the crags darker and redder than their grey
+          // basalt albedo, the terraces a touch darker, souls left hot
+          const tint = mname.startsWith('crags') ? [0.52, 0.42, 0.38]
+                     : mname.startsWith('terraces') ? [0.68, 0.60, 0.55]
+                     : [1.0, 1.0, 1.0];
+          m2.color.setRGB(...tint);
+          m2.userData.base = tint;
+          bakedMats.push(m2);
+          o.material = m2;
+        }
+        o.frustumCulled = false;
+      });
+      group.add(g.scene);
     });
-
-    // four distinct crags, each instanced — variety without four draw calls
-    const VARIANTS = 4, NSPK = 84;
-    const geos = [];
-    for (let v = 0; v < VARIANTS; v++) geos.push(makeCrag(v + 1));
-    const counts = new Array(VARIANTS).fill(0);
-    let hs = 99;
-    const rnd = () => { hs = (hs * 1664525 + 1013904223) >>> 0; return hs / 4294967296; };
-    const specs = [];
-    for (let i = 0; i < NSPK; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      // a dense wall close to the path, thinning as it runs to the horizon
-      const near = rnd() < 0.42;
-      const x = side * (near ? 7.5 + rnd() * 14 : 22 + rnd() * 62);
-      const z = 15 - rnd() * 205;
-      const h = near ? 5 + rnd() * 16 : 12 + rnd() * 34;
-      const r = (near ? 1.1 + rnd() * 2.0 : 2.0 + rnd() * 4.2);
-      const v = i % VARIANTS;
-      counts[v]++;
-      specs.push({ v, x, z, h, r, rx: (rnd() - 0.5) * 0.20,
-                   ry: rnd() * 6.28, rz: (rnd() - 0.5) * 0.20 });
-    }
-    const meshes = geos.map((g, v) => {
-      const m = new THREE.InstancedMesh(g, cragMat, Math.max(1, counts[v]));
-      m.frustumCulled = false;
-      group.add(m);
-      return m;
-    });
-    const fill = new Array(VARIANTS).fill(0);
-    const sm = new THREE.Matrix4();
-    for (const sp of specs) {
-      sm.compose(new THREE.Vector3(sp.x, -1.2, sp.z),
-                 new THREE.Quaternion().setFromEuler(new THREE.Euler(sp.rx, sp.ry, sp.rz)),
-                 new THREE.Vector3(sp.r, sp.h, sp.r));
-      meshes[sp.v].setMatrixAt(fill[sp.v]++, sm);
-    }
-    for (const m of meshes) m.instanceMatrix.needsUpdate = true;
   }
 
   // ---- the kerb wall: a low parapet of the same stone as the road. It is
@@ -1124,6 +1041,22 @@ export function createNaraka(scene) {
 
   const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 
+  // the screaming figure replaces the placid one wherever it is close enough
+  // to read — the kerb and the cauldrons
+  loader.load('assets/models/soul.glb', (g) => {
+    let src = null;
+    g.scene.traverse((o) => { if (o.isMesh && !src) src = o; });
+    if (!src) return;
+    const sg = src.geometry;
+    sg.computeBoundingBox();
+    const size = new THREE.Vector3(); sg.boundingBox.getSize(size);
+    const k = 1.8 / size.y;
+    sg.scale(k, k, k);
+    sg.computeBoundingBox();
+    for (const c of clawers) c.mesh.geometry = sg;
+    for (const s2 of sway) if (s2.pot !== undefined) s2.mesh.geometry = sg;
+  });
+
   loader.load('assets/models/cauldron.glb', (g) => {
     let src = null;
     g.scene.traverse((o) => { if (o.isMesh && !src) src = o; });
@@ -1148,19 +1081,6 @@ export function createNaraka(scene) {
     inst.instanceMatrix.needsUpdate = true;
     inst.frustumCulled = false;
     group.add(inst);
-
-    // a pad of dark rock under every pot, standing out of the lava
-    const padGeo = new THREE.CylinderGeometry(2.1, 2.6, 1.6, 9);
-    const padMat = new THREE.MeshStandardMaterial({ color: 0x120a07, roughness: 1.0 });
-    const pads = new THREE.InstancedMesh(padGeo, padMat, potPositions.length);
-    const pm = new THREE.Matrix4();
-    potPositions.forEach((p, i) => {
-      pm.makeTranslation(p.x, -0.9, p.z);
-      pads.setMatrixAt(i, pm);
-    });
-    pads.instanceMatrix.needsUpdate = true;
-    pads.frustumCulled = false;
-    group.add(pads);
 
     // fire above every mouth — born out of a molten pool at the rim
     const potH = size.y * s;
@@ -1244,22 +1164,6 @@ export function createNaraka(scene) {
       }
     };
     liftFigures();
-    // stone witnesses on pedestals along the walk
-    const pedGeo = new THREE.CylinderGeometry(0.55, 0.78, 2.6, 8);
-    const pedMat = new THREE.MeshStandardMaterial({ color: 0x171008, roughness: 1.0 });
-    for (let i = 0; i < 4; i++) {
-      const side = i % 2 ? 1 : -1;
-      const z = -22 - i * 26;
-      const ped = new THREE.Mesh(pedGeo, pedMat);
-      ped.position.set(side * 3.7, 0.3, z);
-      group.add(ped);
-      const st = new THREE.Mesh(geo, mat);
-      st.scale.setScalar(s * 1.12);
-      st.position.set(side * 3.7, 1.6, z);
-      st.rotation.y = side > 0 ? -1.25 : 1.25;
-      st.frustumCulled = false;
-      group.add(st);
-    }
     // ---- THE KERB. This is the whole point of hell being in VR: something
     // is close enough to touch you. They climb at the causeway edge, and when
     // you draw level they lunge for the rail.
@@ -1316,6 +1220,12 @@ export function createNaraka(scene) {
     /** the mantra: 0 burning .. 1 released */
     set release(v) {
       domeU.uDie.value = v;
+      if (lavaBakedU) lavaBakedU.uDie.value = v;
+      for (const m2 of bakedMats) {
+        const b = m2.userData.base || [1, 1, 1];
+        const d = 1 - v * 0.88;
+        m2.color.setRGB(b[0] * d, b[1] * d, b[2] * d);
+      }
       for (const u of fireU) if (u.uFire) u.uFire.value = 1 - v;
       for (const u of fireU) if (u.uForm) u.uForm.value = 1 - v * 0.85;
       gateU.uRelease.value = v;
@@ -1327,6 +1237,7 @@ export function createNaraka(scene) {
 
     update(t, camera) {
       for (const u of timeU) if (u.uTime) u.uTime.value = t;
+      if (lavaBakedU) lavaBakedU.uTime.value = t;
       domeU.uTime.value = t;
 
       // the Watcher's eyes find you
