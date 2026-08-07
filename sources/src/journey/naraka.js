@@ -630,7 +630,11 @@ export function createNaraka(scene) {
       vertexShader: FLAT_VERT,
       fragmentShader: HELLGLOW_FRAG.replace('__NOISE__', NOISE),
       uniforms: glowU,
-      transparent: true, depthWrite: false, depthTest: false,
+      // depthTest MUST stay on. With it off this 360m shell draws additively
+      // over everything in front of it — including the causeway at your feet —
+      // and lays a pale curved sheet across the whole foreground. It is meant
+      // to be a burning HORIZON, so real geometry has to occlude it.
+      transparent: true, depthWrite: false, depthTest: true,
       blending: THREE.AdditiveBlending, side: THREE.BackSide,
     }));
   glowShell.position.y = 30;
@@ -931,41 +935,11 @@ export function createNaraka(scene) {
     fallMeshes.push(q);
   }
 
-  // ---- the bloom we cannot post-process: every hot thing gets a soft, huge,
-  // very low-alpha halo, so the heat bleeds into the air around it ------------
-  const BLOOM_FRAG = `
-    precision highp float;
-    uniform float uTime;
-    uniform float uFire;
-    uniform float uSeed;
-    uniform vec3  uCol;
-    varying vec2 vUv;
-    void main() {
-      vec2 p = vUv * 2.0 - 1.0;
-      float r2 = dot(p, p);
-      if (r2 > 1.0) discard;
-      // two stacked falloffs: a tight bright heart and a wide faint bleed
-      float tight = exp(-r2 * 7.0);
-      float wide  = exp(-r2 * 1.5) * 0.42;
-      float breathe = 0.86 + 0.14 * sin(uTime * 3.1 + uSeed * 29.0);
-      float a = (tight + wide) * (1.0 - r2) * uFire * breathe * 0.30;
-      if (a < 0.003) discard;
-      gl_FragColor = vec4(uCol * a * 2.2, a);
-    }
-  `;
-  function addBloom(x, y, z, size, col, seed) {
-    const u = { uTime: { value: 0 }, uFire: { value: 1 }, uSeed: { value: seed },
-                uCol: { value: new THREE.Color(col) } };
-    timeU.push(u); fireU.push(u);
-    const q = shaderQuad(size, size, BLOOM_FRAG, u, { order: 7, vert: BILLBOARD_VERT });
-    q.position.set(x, y, z);
-    group.add(q);
-    return q;
-  }
-  // the fire columns bleed into the sky
-  fallMeshes.forEach((q, i) => {
-    addBloom(q.position.x, q.position.y - 25, q.position.z, 60, 0xff5a14, i * 0.7);
-  });
+  // NOTE: hot sources used to get soft additive halo billboards here, faking
+  // the bloom we cannot post-process in WebXR. Removed — a big radial billboard
+  // hanging in open air has nothing to bleed into, so wherever the fire behind
+  // it is small it stopped reading as heat and became a flat red disk in the
+  // sky. The flames and their rim-glow carry the warmth on their own.
 
   // ---- THE WATCHER ------------------------------------------------------------
   const watchDarkU = { uTime: { value: 0 }, uWatch: { value: 0 } };
@@ -1118,7 +1092,6 @@ export function createNaraka(scene) {
                              { order: 8, vert: BILLBOARD_VERT });
       rim.position.set(p.x, potH + 0.55, p.z);
       group.add(rim);
-      addBloom(p.x, potH + 1.6, p.z, 13, 0xff6a1c, (i * 0.53) % 1);
     });
     // the nearest pots carry the real lights
     potLights.forEach((L, i) => {
